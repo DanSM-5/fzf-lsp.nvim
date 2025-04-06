@@ -115,25 +115,32 @@ local function call_sync(method, params, opts, handler)
   handler(err, extract_result(results_lsp), ctx, nil)
 end
 
+---Check if any lsp client supports the given method
+---@param provider string Method to check in the available lsps
+---@param bufnr? integer Buffer from where to requests lsps
+---@return boolean Whether the method is supported
+---@return vim.lsp.Client? Client that supports the method
 local function check_capabilities(provider, bufnr)
   local clients = vim.lsp.get_clients({ bufnr = bufnr or 0 })
 
   local supported_client = false
+  local lsp_client = nil
   for _, client in pairs(clients) do
     supported_client = client.server_capabilities[provider]
+    lsp_client = client
     if supported_client then goto continue end
   end
 
   ::continue::
   if supported_client then
-    return true
+    return true, lsp_client
   else
     if #clients == 0 then
       vim.notify("LSP: no client attached", vim.log.levels.INFO)
     else
       vim.notify("LSP: server does not support " .. provider, vim.log.levels.INFO)
     end
-    return false
+    return false, nil
   end
 end
 
@@ -535,6 +542,7 @@ local function fzf_code_actions(bang, header, prompt, actions)
   end
 
   local sink_fn = (function(source)
+    -- TODO: Handle possible null
     local _, line = next(source)
     local idx = tonumber(line:match("(%d+)[.]"))
     local action = actions[idx]
@@ -646,9 +654,19 @@ local function references_handler(bang, err, result, ctx, _)
   end
 
   local client = vim.lsp.get_client_by_id(ctx.client_id)
+  ---@type string
+  local encoding = ''
+
+  if not client then
+    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    -- Default to utf-16 if there is no client?
+    encoding = 'utf-16'
+  else
+    encoding = client.offset_encoding
+  end
 
   local lines = lines_from_locations(
-    vim.lsp.util.locations_to_items(result, client.offset_encoding), true
+    vim.lsp.util.locations_to_items(result, encoding), true
   )
   fzf_locations(bang, "", "References", lines, false)
 end
@@ -708,55 +726,68 @@ end
 
 -- COMMANDS {{{
 function M.definition(bang, opts)
-  if not check_capabilities("definitionProvider") then
+  local supported, client = check_capabilities("definitionProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "textDocument/definition", params, opts, partial(definition_handler, bang)
   )
 end
 
 function M.declaration(bang, opts)
-  if not check_capabilities("declarationProvider") then
+  local supported, client = check_capabilities("declarationProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "textDocument/declaration", params, opts, partial(declaration_handler, bang)
   )
 end
 
 function M.type_definition(bang, opts)
-  if not check_capabilities("typeDefinitionProvider") then
+  local supported, client = check_capabilities("typeDefinitionProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "textDocument/typeDefinition", params, opts, partial(type_definition_handler, bang)
   )
 end
 
 function M.implementation(bang, opts)
-  if not check_capabilities("implementationProvider") then
+  local supported, client = check_capabilities("implementationProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "textDocument/implementation", params, opts, partial(implementation_handler, bang)
   )
 end
 
+-- TODO: Use somthing like vim.tbl_extend to avoid the inject-field warning
+
 function M.references(bang, opts)
-  if not check_capabilities("referencesProvider") then
+  local supported, client = check_capabilities("referencesProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
+  ---@diagnostic disable-next-line: inject-field
   params.context = { includeDeclaration = true }
   call_sync(
     "textDocument/references", params, opts, partial(references_handler, bang)
@@ -764,11 +795,13 @@ function M.references(bang, opts)
 end
 
 function M.document_symbol(bang, opts)
-  if not check_capabilities("documentSymbolProvider") then
+  local supported, client = check_capabilities("documentSymbolProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "textDocument/documentSymbol", params, opts, partial(document_symbol_handler, bang)
   )
@@ -786,33 +819,40 @@ function M.workspace_symbol(bang, opts)
 end
 
 function M.incoming_calls(bang, opts)
-  if not check_capabilities("callHierarchyProvider") then
+  local supported, client = check_capabilities("callHierarchyProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "callHierarchy/incomingCalls", params, opts, partial(incoming_calls_handler, bang)
   )
 end
 
 function M.outgoing_calls(bang, opts)
-  if not check_capabilities("callHierarchyProvider") then
+  local supported, client = check_capabilities("callHierarchyProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_position_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
   call_sync(
     "callHierarchy/outgoingCalls", params, opts, partial(outgoing_calls_handler, bang)
   )
 end
 
 function M.code_action(bang, opts)
-  if not check_capabilities("codeActionProvider") then
+  local supported, client = check_capabilities("codeActionProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_range_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_range_params(0, encoding)
+  ---@diagnostic disable-next-line: inject-field
   params.context = {
     diagnostics = vim.lsp.diagnostic.get_line_diagnostics(),
   }
@@ -822,11 +862,14 @@ function M.code_action(bang, opts)
 end
 
 function M.range_code_action(bang, opts)
-  if not check_capabilities("codeActionProvider") then
+  local supported, client = check_capabilities("codeActionProvider")
+  if (not supported) or (not client) then
     return
   end
 
-  local params = vim.lsp.util.make_given_range_params()
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_given_range_params(nil, nil, 0, encoding)
+  ---@diagnostic disable-next-line: inject-field
   params.context = {
     diagnostics = vim.lsp.diagnostic.get_line_diagnostics()
   }
