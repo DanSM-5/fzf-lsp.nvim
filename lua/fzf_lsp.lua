@@ -137,16 +137,29 @@ local function check_capabilities(provider, bufnr)
   end
 end
 
-local function code_action_execute(action, offset_encoding)
+---Execute code action
+---@param action table
+---@param client vim.lsp.Client
+local function code_action_execute(action, client)
+  local offset_encoding = client.offset_encoding
   if action.edit or type(action.command) == "table" then
     if action.edit then
       vim.lsp.util.apply_workspace_edit(action.edit, offset_encoding)
     end
     if type(action.command) == "table" then
-      vim.lsp.buf.execute_command(action.command)
+      -- vim.lsp.buf.execute_command(action.command)
+
+      -- local methods = require('vim.lsp.protocol').Methods
+      -- local workspace_executeCommand = methods.workspace_executeCommand
+      -- vim.lsp.buf_request(0, "workspace/executeCommand", action.command)
+      -- TODO: If the update to exec_cmd does not work, try update to
+      -- vim.lsp.buf_request sample above
+      client:exec_cmd(action.command)
     end
   else
-    vim.lsp.buf.execute_command(action)
+
+    -- vim.lsp.buf.execute_command(action)
+    client:exec_cmd(action)
   end
 end
 
@@ -275,14 +288,18 @@ local function location_handler(err, locations, ctx, _, error_message)
 
   local client = vim.lsp.get_client_by_id(ctx.client_id)
 
-  if vim.tbl_islist(locations) then
+  if not client then return end
+
+  if vim.islist(locations) then
     if #locations == 1 then
-      vim.lsp.util.jump_to_location(locations[1], client.offset_encoding)
+      -- vim.lsp.util.jump_to_location(locations[1], client.offset_encoding)
+      vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
 
       return
     end
   else
-    vim.lsp.util.jump_to_location(locations, client.offset_encoding)
+    -- vim.lsp.util.jump_to_location(locations, client.offset_encoding)
+    vim.lsp.util.show_document(locations, client.offset_encoding, { focus = true })
   end
 
   return lines_from_locations(
@@ -472,6 +489,12 @@ local function fzf_locations(bang, header, prompt, source, infile)
     table.insert(options, header)
   end
 
+  -- Use powershell to display the preview
+  if is_windows then
+    table.insert(options, "--with-shell")
+    table.insert(options, 'powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command')
+  end
+
   if g.fzf_lsp_pretty then
     vim.list_extend(options, {"--delimiter", "\x01 ", "--nth", "1"})
   end
@@ -522,19 +545,20 @@ local function fzf_code_actions(bang, header, prompt, actions)
       and type(client.server_capabilities.codeActionProvider) == "table"
       and client.server_capabilities.codeActionProvider.resolveProvider
       then
-      client.request("codeAction/resolve", action, function(resolved_err, resolved_action)
+      client:request("codeAction/resolve", action, function(resolved_err, resolved_action)
         if resolved_err then
           vim.notify(resolved_err.code .. ": " .. resolved_err.message, vim.log.levels.ERROR)
           return
         end
         if resolved_action then
-          code_action_execute(resolved_action, client.offset_encoding)
+          code_action_execute(resolved_action, client)
         else
-          code_action_execute(action, client.offset_encoding)
+          code_action_execute(action, client)
         end
       end)
     else
-      code_action_execute(action, client.offset_encoding)
+      if not client then return end
+      code_action_execute(action, client)
     end
   end)
 
