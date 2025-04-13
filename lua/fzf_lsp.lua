@@ -542,8 +542,10 @@ local function fzf_code_actions(bang, header, prompt, actions)
   end
 
   local sink_fn = (function(source)
-    -- TODO: Handle possible null
     local _, line = next(source)
+    if not line then
+      return
+    end
     local idx = tonumber(line:match("(%d+)[.]"))
     local action = actions[idx]
     local client = vim.lsp.get_client_by_id(action.client_id)
