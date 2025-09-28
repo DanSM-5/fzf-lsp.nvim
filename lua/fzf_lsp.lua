@@ -118,30 +118,22 @@ end
 ---Check if any lsp client supports the given method
 ---@param provider string Method to check in the available lsps
 ---@param bufnr? integer Buffer from where to requests lsps
----@return boolean Whether the method is supported
 ---@return vim.lsp.Client? Client that supports the method
-local function check_capabilities(provider, bufnr)
+local function find_client_with_provider(provider, bufnr)
   local clients = vim.lsp.get_clients({ bufnr = bufnr or 0 })
 
-  local supported_client = false
-  local lsp_client = nil
-  for _, client in pairs(clients) do
-    supported_client = client.server_capabilities[provider]
-    lsp_client = client
-    if supported_client then goto continue end
+  if #clients == 0 then
+    vim.notify("[fzf_lsp] No client attached", vim.log.levels.INFO)
+    return
   end
 
-  ::continue::
-  if supported_client then
-    return true, lsp_client
-  else
-    if #clients == 0 then
-      vim.notify("LSP: no client attached", vim.log.levels.INFO)
-    else
-      vim.notify("LSP: server does not support " .. provider, vim.log.levels.INFO)
+  for _, client in pairs(clients) do
+    if client:supports_method(provider, bufnr) then
+      return client
     end
-    return false, nil
   end
+
+  vim.notify("[fzf_lsp] no server supports " .. provider, vim.log.levels.INFO)
 end
 
 ---Execute code action
@@ -728,8 +720,8 @@ end
 
 -- COMMANDS {{{
 function M.definition(bang, opts)
-  local supported, client = check_capabilities("definitionProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("definitionProvider")
+  if not client then
     return
   end
 
@@ -741,8 +733,8 @@ function M.definition(bang, opts)
 end
 
 function M.declaration(bang, opts)
-  local supported, client = check_capabilities("declarationProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("declarationProvider")
+  if not client then
     return
   end
 
@@ -754,8 +746,8 @@ function M.declaration(bang, opts)
 end
 
 function M.type_definition(bang, opts)
-  local supported, client = check_capabilities("typeDefinitionProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("typeDefinitionProvider")
+  if not client then
     return
   end
 
@@ -767,8 +759,8 @@ function M.type_definition(bang, opts)
 end
 
 function M.implementation(bang, opts)
-  local supported, client = check_capabilities("implementationProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("implementationProvider")
+  if  not client then
     return
   end
 
@@ -782,8 +774,8 @@ end
 -- TODO: Use somthing like vim.tbl_extend to avoid the inject-field warning
 
 function M.references(bang, opts)
-  local supported, client = check_capabilities("referencesProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("referencesProvider")
+  if not client then
     return
   end
 
@@ -797,8 +789,8 @@ function M.references(bang, opts)
 end
 
 function M.document_symbol(bang, opts)
-  local supported, client = check_capabilities("documentSymbolProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("documentSymbolProvider")
+  if not client then
     return
   end
 
@@ -810,7 +802,8 @@ function M.document_symbol(bang, opts)
 end
 
 function M.workspace_symbol(bang, opts)
-  if not check_capabilities("workspaceSymbolProvider") then
+  local client = find_client_with_provider("workspaceSymbolProvider")
+  if not client then
     return
   end
 
@@ -821,8 +814,8 @@ function M.workspace_symbol(bang, opts)
 end
 
 function M.incoming_calls(bang, opts)
-  local supported, client = check_capabilities("callHierarchyProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("callHierarchyProvider")
+  if not client then
     return
   end
 
@@ -834,8 +827,8 @@ function M.incoming_calls(bang, opts)
 end
 
 function M.outgoing_calls(bang, opts)
-  local supported, client = check_capabilities("callHierarchyProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("callHierarchyProvider")
+  if not client then
     return
   end
 
@@ -847,8 +840,8 @@ function M.outgoing_calls(bang, opts)
 end
 
 function M.code_action(bang, opts)
-  local supported, client = check_capabilities("codeActionProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("codeActionProvider")
+  if not client then
     return
   end
 
@@ -864,8 +857,8 @@ function M.code_action(bang, opts)
 end
 
 function M.range_code_action(bang, opts)
-  local supported, client = check_capabilities("codeActionProvider")
-  if (not supported) or (not client) then
+  local client = find_client_with_provider("codeActionProvider")
+  if not client then
     return
   end
 
