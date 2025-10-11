@@ -939,7 +939,10 @@ function M.code_action(bang, opts)
   local params = vim.lsp.util.make_range_params(0, encoding)
   ---@diagnostic disable-next-line: inject-field
   params.context = {
-    diagnostics = vim.lsp.diagnostic.get_line_diagnostics(),
+    diagnostics = vim.diagnostic.get(0, {
+      -- lnum is 0-base index as god intended
+      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
+    })
   }
   call_lsp_method(
     "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
@@ -956,7 +959,10 @@ function M.range_code_action(bang, opts)
   local params = vim.lsp.util.make_given_range_params(nil, nil, 0, encoding)
   ---@diagnostic disable-next-line: inject-field
   params.context = {
-    diagnostics = vim.lsp.diagnostic.get_line_diagnostics()
+    diagnostics = vim.diagnostic.get(0, {
+      -- lnum is 0-base index as god intended
+      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
+    })
   }
   call_lsp_method(
     "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
