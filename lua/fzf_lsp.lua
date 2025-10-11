@@ -338,7 +338,7 @@ local function location_handler(err, locations, ctx, _, error_message)
     end
   else
     -- vim.lsp.util.jump_to_location(locations, client.offset_encoding)
-    vim.lsp.util.show_document(locations, client.offset_encoding, { focus = true })
+    vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
   end
 
   return lines_from_locations(
