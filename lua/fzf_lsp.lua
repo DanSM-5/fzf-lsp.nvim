@@ -747,8 +747,20 @@ local function document_symbol_handler(bang, err, result, ctx, _)
     return
   end
 
+  ---@type string
+  local encoding = ''
+  local client = vim.lsp.get_client_by_id(ctx.client_id)
+
+  if not client then
+    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    -- Default to utf-16 if there is no client?
+    encoding = 'utf-16'
+  else
+    encoding = client.offset_encoding
+  end
+
   local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr), false
+    vim.lsp.util.symbols_to_items(result, ctx.bufnr, encoding), false
   )
   fzf_locations(bang, "", "Document Symbols", lines, true)
 end
@@ -765,8 +777,20 @@ local function workspace_symbol_handler(bang, err, result, ctx, _)
     return
   end
 
+  ---@type string
+  local encoding = ''
+  local client = vim.lsp.get_client_by_id(ctx.client_id)
+
+  if not client then
+    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    -- Default to utf-16 if there is no client?
+    encoding = 'utf-16'
+  else
+    encoding = client.offset_encoding
+  end
+
   local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr), true
+    vim.lsp.util.symbols_to_items(result, ctx.bufnr, encoding), true
   )
   fzf_locations(bang, "", "Workspace Symbols", lines, false)
 end
