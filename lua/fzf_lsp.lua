@@ -83,36 +83,76 @@ end
 -- }}}
 
 -- LSP utility {{{
-local function extract_result(results_lsp)
-  if results_lsp then
-    local results = {}
-    for client_id, response in pairs(results_lsp) do
-      if response.result then
-        for _, result in pairs(response.result) do
-          result.client_id = client_id
-          table.insert(results, result)
-        end
-      end
-    end
 
-    return results
-  end
-end
+-- TODO: remove previous result extraction fn
+-- local function extract_result(results_lsp)
+--   if results_lsp then
+--     local results = {}
+--     for client_id, response in pairs(results_lsp) do
+--       if response.result then
+--         for _, result in pairs(response.result) do
+--           result.client_id = client_id
+--           table.insert(results, result)
+--         end
+--       end
+--     end
+--
+--     return results
+--   end
+-- end
 
-local function call_sync(method, params, opts, handler)
+-- TODO: Remove sample text
+-- vim.keymap.set('n', '<C-t>', function ()
+--   local method = 'textDocument/codeAction'
+--   local bufnr = vim.api.nvim_get_current_buf()
+--   local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
+--   if lua_ls == nil then
+--     return
+--   end
+--   local param_l = vim.lsp.util.make_range_params(0, lua_ls.offset_encoding)
+--   param_l.context = {
+--     diagnostics = vim.lsp.diagnostic.get_line_diagnostics()
+--   }
+--   lua_ls:request(method, param_l, function (err, result, context, config)
+--     vim.print('err:', err)
+--     vim.print('res:', result)
+--     vim.print('ctx:', context)
+--     vim.print('conf:', config)
+--   end, bufnr)
+--
+--   local results_lsp, err = vim.lsp.buf_request_sync(
+--     bufnr, method, param_l, 60 * 1000
+--   )
+--   vim.print('res:', next(results_lsp))
+--   vim.print('err:', err)
+-- end)
+
+---@class FzfLspContextCall
+---@field method string Lsp method to call
+---@field bufnr integer Buffer to applied the action to
+---@field client_id integer Client id to apply the method
+---@field opts any additional options to pass on resolution
+
+---Call lsp method
+---@param method vim.lsp.protocol.Method.ClientToServer.Request LSP method name.
+---@param params any params for the lsp method following the spec
+---@param opts any options for the method
+---@param handler fzf_lsp.PartialLspHandler handler function
+---@param client vim.lsp.Client
+local function call_lsp_method(method, params, opts, handler, client)
   params = params or {}
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
-  local results_lsp, err = vim.lsp.buf_request_sync(
-    bufnr, method, params, opts.timeout or g.fzf_lsp_timeout
-  )
 
-  local ctx = {
-    method = method,
-    bufnr = bufnr,
-    client_id = results_lsp and next(results_lsp) or nil,
-  }
-  handler(err, extract_result(results_lsp), ctx, nil)
+  client:request(method, params, function (err, result, context, config)
+    local results = {}
+    for _, res in pairs(result) do
+      res.client_id = client.id
+      table.insert(results, result)
+    end
+
+    handler(err, results, context, config)
+  end, bufnr)
 end
 
 ---Check if any lsp client supports the given method
@@ -393,6 +433,9 @@ local function common_sink(infile, lines)
 
   action = action or "e"
 
+  -- vim.lsp.util.jump_to_location()
+  -- vim.lsp.util.show_document()
+
   for _, loc in ipairs(locations) do
     local edit_infile = (
       (infile or fn.expand("%:~:.") == loc["filename"]) and
@@ -582,6 +625,28 @@ end
 -- }}}
 
 -- LSP reponse handlers {{{
+
+--@class FzfLspHandler
+--@field bang boolean Whether to show fzf fullscreen or not
+--@field err lsp.ResponseError Error response from the lsp
+--@field result any[] Result from the lsp server
+--@field ctx lsp.HandlerContext Context object for the request
+--@field config table? Object holding configuration if any
+
+---@alias fzf_lsp.LspHandler fun(
+---bang: boolean,
+---err: lsp.ResponseError,
+---result: any[],
+---ctx: lsp.HandlerContext,
+---config: table?)
+
+---@alias fzf_lsp.PartialLspHandler fun(
+---err: lsp.ResponseError,
+---result: any[],
+---ctx: lsp.HandlerContext,
+---config: table?)
+
+---@type fzf_lsp.LspHandler
 local function code_action_handler(bang, err, result, _, _)
   if err ~= nil then
     perror(err)
@@ -600,6 +665,7 @@ local function code_action_handler(bang, err, result, _, _)
   fzf_code_actions(bang, "", "Code Actions", result)
 end
 
+---@type fzf_lsp.LspHandler
 local function definition_handler(bang, err, result, ctx, config)
   local results = location_handler(
     err, result, ctx, config, "Definition not found"
@@ -609,6 +675,7 @@ local function definition_handler(bang, err, result, ctx, config)
   end
 end
 
+---@type fzf_lsp.LspHandler
 local function declaration_handler(bang, err, result, ctx, config)
   local results = location_handler(
     err, result, ctx, config, "Declaration not found"
@@ -618,6 +685,7 @@ local function declaration_handler(bang, err, result, ctx, config)
   end
 end
 
+---@type fzf_lsp.LspHandler
 local function type_definition_handler(bang, err, result, ctx, config)
   local results = location_handler(
     err, result, ctx, config, "Type Definition not found"
@@ -627,6 +695,7 @@ local function type_definition_handler(bang, err, result, ctx, config)
   end
 end
 
+---@type fzf_lsp.LspHandler
 local function implementation_handler(bang, err, result, ctx, config)
   local results = location_handler(
     err, result, ctx, config, "Implementation not found"
@@ -636,6 +705,7 @@ local function implementation_handler(bang, err, result, ctx, config)
   end
 end
 
+---@type fzf_lsp.LspHandler
 local function references_handler(bang, err, result, ctx, _)
   if err ~= nil then
     perror(err)
@@ -665,6 +735,7 @@ local function references_handler(bang, err, result, ctx, _)
   fzf_locations(bang, "", "References", lines, false)
 end
 
+---@type fzf_lsp.LspHandler
 local function document_symbol_handler(bang, err, result, ctx, _)
   if err ~= nil then
     perror(err)
@@ -682,6 +753,7 @@ local function document_symbol_handler(bang, err, result, ctx, _)
   fzf_locations(bang, "", "Document Symbols", lines, true)
 end
 
+---@type fzf_lsp.LspHandler
 local function workspace_symbol_handler(bang, err, result, ctx, _)
   if err ~= nil then
     perror(err)
@@ -699,6 +771,7 @@ local function workspace_symbol_handler(bang, err, result, ctx, _)
   fzf_locations(bang, "", "Workspace Symbols", lines, false)
 end
 
+---@type fzf_lsp.LspHandler
 local function incoming_calls_handler(bang, err, result, ctx, config)
   local results = call_hierarchy_handler_from(
     err, result, ctx, config, "Incoming calls not found"
@@ -708,6 +781,7 @@ local function incoming_calls_handler(bang, err, result, ctx, config)
   end
 end
 
+---@type fzf_lsp.LspHandler
 local function outgoing_calls_handler(bang, err, result, ctx, config)
   local results = call_hierarchy_handler_to(
     err, result, ctx, config, "Outgoing calls not found"
@@ -727,8 +801,8 @@ function M.definition(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
-  call_sync(
-    "textDocument/definition", params, opts, partial(definition_handler, bang)
+  call_lsp_method(
+    "textDocument/definition", params, opts, partial(definition_handler, bang), client
   )
 end
 
@@ -740,8 +814,8 @@ function M.declaration(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
-  call_sync(
-    "textDocument/declaration", params, opts, partial(declaration_handler, bang)
+  call_lsp_method(
+    "textDocument/declaration", params, opts, partial(declaration_handler, bang), client
   )
 end
 
@@ -753,8 +827,8 @@ function M.type_definition(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
-  call_sync(
-    "textDocument/typeDefinition", params, opts, partial(type_definition_handler, bang)
+  call_lsp_method(
+    "textDocument/typeDefinition", params, opts, partial(type_definition_handler, bang), client
   )
 end
 
@@ -766,8 +840,8 @@ function M.implementation(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
-  call_sync(
-    "textDocument/implementation", params, opts, partial(implementation_handler, bang)
+  call_lsp_method(
+    "textDocument/implementation", params, opts, partial(implementation_handler, bang), client
   )
 end
 
@@ -783,8 +857,8 @@ function M.references(bang, opts)
   local params = vim.lsp.util.make_position_params(0, encoding)
   ---@diagnostic disable-next-line: inject-field
   params.context = { includeDeclaration = true }
-  call_sync(
-    "textDocument/references", params, opts, partial(references_handler, bang)
+  call_lsp_method(
+    "textDocument/references", params, opts, partial(references_handler, bang), client
   )
 end
 
@@ -796,8 +870,8 @@ function M.document_symbol(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
-  call_sync(
-    "textDocument/documentSymbol", params, opts, partial(document_symbol_handler, bang)
+  call_lsp_method(
+    "textDocument/documentSymbol", params, opts, partial(document_symbol_handler, bang), client
   )
 end
 
@@ -808,8 +882,8 @@ function M.workspace_symbol(bang, opts)
   end
 
   local params = {query = opts.query or ''}
-  call_sync(
-    "workspace/symbol", params, opts, partial(workspace_symbol_handler, bang)
+  call_lsp_method(
+    "workspace/symbol", params, opts, partial(workspace_symbol_handler, bang), client
   )
 end
 
@@ -829,8 +903,8 @@ function M.incoming_calls(bang, opts)
       selectionRange = range.range,
     },
   }
-  call_sync(
-    "callHierarchy/incomingCalls", params, opts, partial(incoming_calls_handler, bang)
+  call_lsp_method(
+    "callHierarchy/incomingCalls", params, opts, partial(incoming_calls_handler, bang), client
   )
 end
 
@@ -850,8 +924,8 @@ function M.outgoing_calls(bang, opts)
       selectionRange = range.range,
     },
   }
-  call_sync(
-    "callHierarchy/outgoingCalls", params, opts, partial(outgoing_calls_handler, bang)
+  call_lsp_method(
+    "callHierarchy/outgoingCalls", params, opts, partial(outgoing_calls_handler, bang), client
   )
 end
 
@@ -867,8 +941,8 @@ function M.code_action(bang, opts)
   params.context = {
     diagnostics = vim.lsp.diagnostic.get_line_diagnostics(),
   }
-  call_sync(
-    "textDocument/codeAction", params, opts, partial(code_action_handler, bang)
+  call_lsp_method(
+    "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
   )
 end
 
@@ -884,8 +958,8 @@ function M.range_code_action(bang, opts)
   params.context = {
     diagnostics = vim.lsp.diagnostic.get_line_diagnostics()
   }
-  call_sync(
-    "textDocument/codeAction", params, opts, partial(code_action_handler, bang)
+  call_lsp_method(
+    "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
   )
 end
 
