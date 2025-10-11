@@ -331,14 +331,17 @@ local function location_handler(err, locations, ctx, _, error_message)
 
   if vim.islist(locations) then
     if #locations == 1 then
+      -- Single location. Focus and return
       -- vim.lsp.util.jump_to_location(locations[1], client.offset_encoding)
       vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
 
       return
     end
   else
+    -- Single location. Focus and return
     -- vim.lsp.util.jump_to_location(locations, client.offset_encoding)
-    vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
+    vim.lsp.util.show_document(locations, client.offset_encoding, { focus = true })
+    return
   end
 
   return lines_from_locations(
