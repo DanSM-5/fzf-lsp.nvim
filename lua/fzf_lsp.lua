@@ -820,7 +820,15 @@ function M.incoming_calls(bang, opts)
   end
 
   local encoding = client.offset_encoding
-  local params = vim.lsp.util.make_position_params(0, encoding)
+  -- local params = vim.lsp.util.make_position_params(0, encoding)
+  local range = vim.lsp.util.make_range_params(0, encoding)
+  local params = {
+    item = {
+      uri = range.textDocument.uri,
+      range = range.range,
+      selectionRange = range.range,
+    },
+  }
   call_sync(
     "callHierarchy/incomingCalls", params, opts, partial(incoming_calls_handler, bang)
   )
@@ -833,7 +841,15 @@ function M.outgoing_calls(bang, opts)
   end
 
   local encoding = client.offset_encoding
-  local params = vim.lsp.util.make_position_params(0, encoding)
+  -- local params = vim.lsp.util.make_position_params(0, encoding)
+  local range = vim.lsp.util.make_range_params(0, encoding)
+  local params = {
+    item = {
+      uri = range.textDocument.uri,
+      range = range.range,
+      selectionRange = range.range,
+    },
+  }
   call_sync(
     "callHierarchy/outgoingCalls", params, opts, partial(outgoing_calls_handler, bang)
   )
