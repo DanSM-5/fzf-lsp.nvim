@@ -36,10 +36,28 @@ end
 local bin = { preview = preview_command }
 -- }}}
 
+
+---@class fzf_lsp.fzf_locations_data
+---@field results? any|any[] lsp results data
+---@field ctx? lsp.HandlerContext lsp context handler
+---@field config? table lsp request config
+---@field infile boolean if it is present on current file
+---@field diagnostics? vim.Diagnostic[] diagnostics information
+
 -- utility functions {{{
-local function partial(func, arg)
-  return (function(...)
-    return func(arg, ...)
+
+-- local function partial(func, arg)
+--   return (function(...)
+--     return func(arg, ...)
+--   end)
+-- end
+
+local function partial(func, ...)
+  local partial_args = { ... }
+  return (function (...)
+    local args = { ... }
+    local all = table.move(args, 1, #args, #partial_args + 1, partial_args)
+    return func(unpack(all))
   end)
 end
 
@@ -47,21 +65,24 @@ local function perror(err)
   vim.notify("ERROR: " .. tostring(err), vim.log.levels.WARN)
 end
 
-local function mk_handler(fn)
+local function mk_handler(f)
   return function(...)
-    local config_or_client_id = select(4, ...)
-    local is_new = type(config_or_client_id) ~= 'number'
-    if is_new then
-      fn(...)
-    else
-      local err = select(1, ...)
-      local method = select(2, ...)
-      local result = select(3, ...)
-      local client_id = select(4, ...)
-      local bufnr = select(5, ...)
-      local config = select(6, ...)
-      fn(err, result, { method = method, client_id = client_id, bufnr = bufnr }, config)
-    end
+    -- End support for neovim 0.10 or below
+    f(...)
+
+    -- local config_or_client_id = select(4, ...)
+    -- local is_new = type(config_or_client_id) ~= 'number'
+    -- if is_new then
+    --   f(...)
+    -- else
+    --   local err = select(1, ...)
+    --   local method = select(2, ...)
+    --   local result = select(3, ...)
+    --   local client_id = select(4, ...)
+    --   local bufnr = select(5, ...)
+    --   local config = select(6, ...)
+    --   f(err, result, { method = method, client_id = client_id, bufnr = bufnr }, config)
+    -- end
   end
 end
 
@@ -84,48 +105,56 @@ end
 
 -- LSP utility {{{
 
--- TODO: remove previous result extraction fn
--- local function extract_result(results_lsp)
---   if results_lsp then
---     local results = {}
---     for client_id, response in pairs(results_lsp) do
---       if response.result then
---         for _, result in pairs(response.result) do
---           result.client_id = client_id
---           table.insert(results, result)
---         end
---       end
---     end
---
---     return results
---   end
--- end
+local function extract_result(results_lsp)
+  if results_lsp then
+    local results = {}
+    for client_id, response in pairs(results_lsp) do
+      if response.result then
+        for _, result in pairs(response.result) do
+          result.client_id = client_id
+          table.insert(results, result)
+        end
+      end
+    end
+
+    return results
+  end
+end
 
 -- TODO: Remove sample text
--- vim.keymap.set('n', '<C-t>', function ()
---   local method = 'textDocument/codeAction'
---   local bufnr = vim.api.nvim_get_current_buf()
---   local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
---   if lua_ls == nil then
---     return
---   end
---   local param_l = vim.lsp.util.make_range_params(0, lua_ls.offset_encoding)
---   param_l.context = {
---     diagnostics = vim.lsp.diagnostic.get_line_diagnostics()
---   }
---   lua_ls:request(method, param_l, function (err, result, context, config)
---     vim.print('err:', err)
---     vim.print('res:', result)
---     vim.print('ctx:', context)
---     vim.print('conf:', config)
---   end, bufnr)
---
---   local results_lsp, err = vim.lsp.buf_request_sync(
---     bufnr, method, param_l, 60 * 1000
---   )
---   vim.print('res:', next(results_lsp))
---   vim.print('err:', err)
--- end)
+vim.keymap.set('n', '<C-t>', function ()
+  local method = 'textDocument/codeAction'
+  local bufnr = vim.api.nvim_get_current_buf()
+  local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
+  if lua_ls == nil then
+    return
+  end
+  local param_l = vim.lsp.util.make_range_params(0, lua_ls.offset_encoding)
+  param_l.context = {
+    diagnostics = vim.diagnostic.get(bufnr, {
+      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
+    })
+  }
+  -- lua_ls:request(method, param_l, function (err, result, context, config)
+  --   vim.print('err:', err)
+  --   vim.print('res:', result)
+  --   vim.print('ctx:', context)
+  --   vim.print('conf:', config)
+  -- end, bufnr)
+
+  vim.lsp.buf_request_all(bufnr, method, param_l, function (results, context, config)
+    vim.print('res:', results)
+    vim.print('ctx:', context)
+    vim.print('conf:', config)
+  end)
+
+  -- -- sync
+  -- local results_lsp, err = vim.lsp.buf_request_sync(
+  --   bufnr, method, param_l, 60 * 1000
+  -- )
+  -- vim.print('res:', next(results_lsp))
+  -- vim.print('err:', err)
+end)
 
 ---@class FzfLspContextCall
 ---@field method string Lsp method to call
@@ -144,15 +173,23 @@ local function call_lsp_method(method, params, opts, handler, client)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
 
-  client:request(method, params, function (err, result, context, config)
-    local results = {}
-    for _, res in pairs(result) do
-      res.client_id = client.id
-      table.insert(results, result)
-    end
+  vim.lsp.buf_request_all(bufnr, method, params, function (results, context, config)
+    local err = results[1] and results[1].err
+    ---@diagnostic disable-next-line: inject-field
+    context.opts = opts
+    handler(err, extract_result(results), context, config)
+  end)
 
-    handler(err, results, context, config)
-  end, bufnr)
+  -- single client version
+  -- client:request(method, params, function (err, result, context, config)
+  --   local results = {}
+  --   for _, res in pairs(result) do
+  --     res.client_id = client.id
+  --     table.insert(results, result)
+  --   end
+  --
+  --   handler(err, results, context, config)
+  -- end, bufnr)
 end
 
 ---Check if any lsp client supports the given method
@@ -292,6 +329,10 @@ local function joindiag_pretty(e, include_filename)
     .. ":"
 end
 
+---Get lines to display in fzf
+---@param locations vim.quickfix.entry[] List of locations in quickfix format
+---@param include_filename boolean whether or not to include the filename
+---@return string[] list List of lines to show in fzf
 local function lines_from_locations(locations, include_filename)
   local joinfn = g.fzf_lsp_pretty and joinloc_pretty or joinloc_raw
 
@@ -303,9 +344,14 @@ local function lines_from_locations(locations, include_filename)
   return lines
 end
 
+---Get lines to display in fzf
+---@param lines string[] List of locations in quickfix format
+---@param include_filename boolean whether or not to include the filename
+---@return vim.quickfix.entry[] list quickfix information
 local function locations_from_lines(lines, include_filename)
   local extractfn = g.fzf_lsp_pretty and extloc_pretty or extloc_raw
 
+  ---@type vim.quickfix.entry[]
   local locations = {}
   for _, l in ipairs(lines) do
     table.insert(locations, extractfn(l, include_filename))
@@ -314,6 +360,13 @@ local function locations_from_lines(lines, include_filename)
   return locations
 end
 
+---Location handler for lsp methods
+---@param err? lsp.ResponseError
+---@param locations lsp.Location|lsp.LocationLink|lsp.Location[]|lsp.LocationLink[]
+---@param ctx lsp.HandlerContext
+---@param _ table?
+---@param error_message string message to show on error
+---@return table|nil
 local function location_handler(err, locations, ctx, _, error_message)
   if err ~= nil then
     perror(err)
@@ -360,6 +413,7 @@ local function call_hierarchy_handler(direction, err, result, _, _, error_messag
     return
   end
 
+  ---@type vim.quickfix.entry[]
   local items = {}
   for _, call_hierarchy_call in pairs(result) do
     local call_hierarchy_item = call_hierarchy_call[direction]
@@ -415,17 +469,77 @@ local function fzf_run(...)
   return fn["fzf#run"](...)
 end
 
-local function common_sink(infile, lines)
+---Jump to the given location
+---@param location vim.quickfix.entry
+---@param data fzf_lsp.fzf_locations_data
+local function jump_to_location(location, data)
+  local uri = vim.uri_from_fname(location.filename)
+  local bufnr = vim.uri_to_bufnr(uri)
+  vim.fn.bufload(bufnr) -- ensure buffer is loaded into memory or buffer will be empty
+
+  ---@type vim.lsp.Client?
+  local client = (data.ctx and data.ctx.client_id ~= nil) and vim.lsp.get_client_by_id(data.ctx.client_id) or vim.lsp.get_clients({ bufnr = 0 })[1]
+
+  local encoding = "utf-16"
+  if client ~= nil then
+    encoding = client.offset_encoding
+  end
+
+  -- Convert back a quickfix entry style to lsp.Location
+  local start_line = location.lnum - 1
+  local end_line = location.end_lnum - 1
+  local start_line_content = vim.api.nvim_buf_get_lines(bufnr, start_line, start_line + 1, false)[1] or ''
+  local end_line_content = vim.api.nvim_buf_get_lines(bufnr, end_line, end_line + 1, false)[1] or ''
+  local start_col = vim.str_utfindex(start_line_content, encoding, location.col - 1, false)
+  local end_col = vim.str_utfindex(end_line_content, encoding, location.end_col - 1, false)
+  --    ^
+  -- Samples
+  -- from lsp.character to col
+  -- =vim.str_byteindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], 'utf-16', 10, false) + 1
+  -- from col to lsp.character
+  -- =vim.str_utfindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], 'utf-16', 11 - 1, false)
+
+  -- Load buffer and jump to it
+  -- local uri = vim.uri_from_fname(vim.fn.fnamemodify('nvimw', ':p'))
+  -- local bufnr = vim.uri_to_bufnr(uri)
+  -- =vim.fn.bufload(<bufnr>)
+  -- =vim.lsp.util.show_document({ uri = uri, range = { ['start'] = { line = 3, character = 0 }, ['end'] = { line = 3, character = 8 } } }, 'utf-16', { focus = true })
+
+  ---@type lsp.Location
+  local lspLocation = {
+    uri = uri,
+    range = {
+      ['start'] = { line = start_line, character = start_col  },
+      ['end'] = { line = end_line, character = end_col },
+    },
+  }
+
+
+    -- E5108: Lua: .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:287: attempt to compare number with nil
+    -- stack traceback:
+    --     .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:287: in function 'get_line_byte_from_position'
+    --     .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:1034: in function 'show_document'
+    --     [string ":lua"]:1: in main chunk
+
+  vim.lsp.util.show_document(lspLocation, encoding, { focus = true })
+end
+
+---Common sync function for fzf
+---@param data fzf_lsp.fzf_locations_data Context data for sink
+---@param title string title of the fzf call which can be used to identify the call
+---@param lines string[] response from selection in fzf
+local function common_sink(data, title, lines)
   local action
+  local key
   if g.fzf_lsp_action and not vim.tbl_isempty(g.fzf_lsp_action) then
-    local key = table.remove(lines, 1)
+    key = table.remove(lines, 1)
     action = g.fzf_lsp_action[key]
   end
 
-  local locations = locations_from_lines(lines, not infile)
+  local locations = locations_from_lines(lines, not data.infile)
   if action == nil and #lines > 1 then
     vim.fn.setqflist({}, ' ', {
-        title = 'Language Server';
+        title = title or 'Language Server';
         items = locations;
       })
     api.nvim_command("copen")
@@ -436,12 +550,88 @@ local function common_sink(infile, lines)
 
   action = action or "e"
 
-  -- vim.lsp.util.jump_to_location()
-  -- vim.lsp.util.show_document()
+  -- Jump to location if edit action
+  if action == "e" or action == "edit" then
+    for _, loc in ipairs(locations) do
+      jump_to_location(loc, data)
+      api.nvim_command("normal! zv")
+    end
+    return
+  end
 
+  -- Action is command
+  -- Due to limitations we pass the filename only
+  if type(action) == "string" and vim.fn.exists(':'..action) > 0 then
+    for _, loc in ipairs(locations) do
+      local err = api.nvim_command(action .. " " .. loc["filename"])
+      if err ~= nil then
+        api.nvim_command("echoerr " .. err)
+      end
+    end
+    return
+  end
+
+  -- Action is lua function
+  if key ~= nil and type(action) == "function" then
+    for _, loc in ipairs(locations) do
+      local ok, err = pcall(function ()
+        action({ location = loc, data = data, title = title })
+      end)
+
+      if not ok and err ~= nil then
+        vim.notify(err, vim.log.levels.ERROR)
+      end
+    end
+    return
+  end
+
+  -- Action may be a VimL funcref
+  if key ~= nil and action == vim.NIL then
+    -- Sample hack
+    -- _G.test_f = {
+    --   foo = function() return 'from lua' end
+    -- }
+    -- vim.cmd([[
+    --   func! s:Foo(arg) abort
+    --     echo a:arg
+    --   endf
+    --   let g:foo = { 'a': function('s:Foo') }
+    --   call g:foo.a(v:lua.test_f.foo())
+    -- ]])
+
+    for _, loc in ipairs(locations) do
+      --- build temporary global functions
+      --- it should not clash with anything... I hope
+      _G._fzf_lsp_args_data = function()
+        return { location = loc, data = data, title = title }
+      end
+      _G._fzf_lsp_args_key = function()
+        return key
+      end
+
+      local ok, err = pcall(function()
+        vim.cmd([[
+          call g:fzf_lsp_action[v:lua._fzf_lsp_args_key()](v:lua._fzf_lsp_args_data())
+        ]])
+      end)
+
+      if not ok and err ~= nil then
+        vim.notify(err, vim.log.levels.ERROR)
+      end
+
+      -- cleanup
+      _G._fzf_lsp_args_data = nil
+      _G._fzf_lsp_args_key = nil
+    end
+    return
+  end
+
+  -- legacy pre fix for https://github.com/gfanto/fzf-lsp.nvim/pull/40
+  -- This should be unreachable
+  vim.notify("[fzf_lsp] using legacy handler for actions")
   for _, loc in ipairs(locations) do
     local edit_infile = (
-      (infile or fn.expand("%:~:.") == loc["filename"]) and
+      (data.infile or fn.expand("%:~:.") == loc["filename"]) and
       (action == "e" or action == "edit")
     )
     -- if i'm editing the same file i'm in, i can just move the cursor
@@ -495,15 +685,21 @@ local function fzf_ui_select(items, opts, on_choice)
   }, 0))
 end
 
-local function fzf_locations(bang, header, prompt, source, infile)
+---Show fzf with the list of locations
+---@param bang 0|1 fzf fullscreen option. 1 for fullscreen, default 0.
+---@param header string header to show in fzf `--header`
+---@param prompt string prompt to show in fzf `--prompt`
+---@param source any[]
+---@param data fzf_lsp.fzf_locations_data
+local function fzf_locations(bang, header, prompt, source, data)
   local preview_cmd
   if g.fzf_lsp_pretty then
-    preview_cmd = (infile and
+    preview_cmd = (data.infile and
       (bin.preview .. " " .. fn.expand("%") .. ":{-1}") or
       (bin.preview .. " {-1}")
     )
   else
-    preview_cmd = (infile and
+    preview_cmd = (data.infile and
       (bin.preview .. " " .. fn.expand("%") .. ":{}") or
       (bin.preview .. " {}")
     )
@@ -525,9 +721,11 @@ local function fzf_locations(bang, header, prompt, source, infile)
     "--bind", "alt-d:deselect-all",
     "--bind", "ctrl-l:change-preview-window(down|hidden|)",
   }
+  local name = "fzf_lsp"
   if string.len(prompt) > 0 then
     table.insert(options, "--prompt")
     table.insert(options, prompt .. "> ")
+    name = name .. "_" .. prompt
   end
   if string.len(header) > 0 then
     table.insert(options, "--header")
@@ -566,9 +764,9 @@ local function fzf_locations(bang, header, prompt, source, infile)
   end
 
   vim.list_extend(options, {"--preview", preview_cmd})
-  fzf_run(fzf_wrap("fzf_lsp", {
+  fzf_run(fzf_wrap(name, {
     source = source,
-    sink = partial(common_sink, infile),
+    sink = partial(common_sink, data, prompt),
     options = options,
   }, bang))
 end
@@ -637,14 +835,14 @@ end
 --@field config table? Object holding configuration if any
 
 ---@alias fzf_lsp.LspHandler fun(
----bang: boolean,
+---bang: 0|1,
 ---err: lsp.ResponseError,
 ---result: any[],
 ---ctx: lsp.HandlerContext,
 ---config: table?)
 
 ---@alias fzf_lsp.PartialLspHandler fun(
----err: lsp.ResponseError,
+---err?: lsp.ResponseError,
 ---result: any[],
 ---ctx: lsp.HandlerContext,
 ---config: table?)
@@ -674,7 +872,8 @@ local function definition_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Definition not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Definitions", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Definitions", results, data)
   end
 end
 
@@ -684,7 +883,8 @@ local function declaration_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Declaration not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Declarations", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Declarations", results, data)
   end
 end
 
@@ -694,7 +894,8 @@ local function type_definition_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Type Definition not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Type Definitions", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Type Definitions", results, data)
   end
 end
 
@@ -704,12 +905,13 @@ local function implementation_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Implementation not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Implementations", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Implementations", results, data)
   end
 end
 
 ---@type fzf_lsp.LspHandler
-local function references_handler(bang, err, result, ctx, _)
+local function references_handler(bang, err, result, ctx, config)
   if err ~= nil then
     perror(err)
     return
@@ -727,7 +929,7 @@ local function references_handler(bang, err, result, ctx, _)
   if not client then
     vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
-    encoding = 'utf-16'
+    encoding = "utf-16"
   else
     encoding = client.offset_encoding
   end
@@ -735,11 +937,13 @@ local function references_handler(bang, err, result, ctx, _)
   local lines = lines_from_locations(
     vim.lsp.util.locations_to_items(result, encoding), true
   )
-  fzf_locations(bang, "", "References", lines, false)
+
+  local data = { results = result, ctx = ctx, config = config, infile = false }
+  fzf_locations(bang, "", "References", lines, data)
 end
 
 ---@type fzf_lsp.LspHandler
-local function document_symbol_handler(bang, err, result, ctx, _)
+local function document_symbol_handler(bang, err, result, ctx, config)
   if err ~= nil then
     perror(err)
     return
@@ -757,19 +961,20 @@ local function document_symbol_handler(bang, err, result, ctx, _)
   if not client then
     vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
-    encoding = 'utf-16'
+    encoding = "utf-16"
   else
     encoding = client.offset_encoding
   end
 
-  local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr, encoding), false
+local lines = lines_from_locations(
+    vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding), false
   )
-  fzf_locations(bang, "", "Document Symbols", lines, true)
+  local data = { results = result, ctx = ctx, config = config, infile = true }
+  fzf_locations(bang, "", "Document Symbols", lines, data)
 end
 
 ---@type fzf_lsp.LspHandler
-local function workspace_symbol_handler(bang, err, result, ctx, _)
+local function workspace_symbol_handler(bang, err, result, ctx, config)
   if err ~= nil then
     perror(err)
     return
@@ -787,15 +992,16 @@ local function workspace_symbol_handler(bang, err, result, ctx, _)
   if not client then
     vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
-    encoding = 'utf-16'
+    encoding = "utf-16"
   else
     encoding = client.offset_encoding
   end
 
   local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr, encoding), true
+    vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding), true
   )
-  fzf_locations(bang, "", "Workspace Symbols", lines, false)
+  local data = { results = result, ctx = ctx, config = config, infile = false }
+  fzf_locations(bang, "", "Workspace Symbols", lines, data)
 end
 
 ---@type fzf_lsp.LspHandler
@@ -804,7 +1010,8 @@ local function incoming_calls_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Incoming calls not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Incoming Calls", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Incoming Calls", results, data)
   end
 end
 
@@ -814,7 +1021,8 @@ local function outgoing_calls_handler(bang, err, result, ctx, config)
     err, result, ctx, config, "Outgoing calls not found"
   )
   if results and not vim.tbl_isempty(results) then
-    fzf_locations(bang, "", "Outgoing Calls", results, false)
+    local data = { results = result, ctx = ctx, config = config, infile = false }
+    fzf_locations(bang, "", "Outgoing Calls", results, data)
   end
 end
 -- }}}
@@ -908,7 +1116,7 @@ function M.workspace_symbol(bang, opts)
     return
   end
 
-  local params = {query = opts.query or ''}
+  local params = { query = opts.query or '' }
   call_lsp_method(
     "workspace/symbol", params, opts, partial(workspace_symbol_handler, bang), client
   )
@@ -1003,7 +1211,7 @@ function M.diagnostic(bang, opts)
   local show_all = bufnr == "*"
   bufnr = (type(bufnr) == "string" and not show_all) and tonumber(bufnr) or bufnr
 
-  local buffer_diags
+  local buffer_diags ---@type vim.Diagnostic[]
   if show_all then
     buffer_diags = vim.diagnostic.get(nil)
   else
@@ -1058,7 +1266,8 @@ function M.diagnostic(bang, opts)
     return
   end
 
-  fzf_locations(bang, "", "Diagnostics", entries, not show_all)
+  local data = { infile = not show_all, diagnostics = buffer_diags }
+  fzf_locations(bang, "", "Diagnostics", entries, data)
 end
 -- }}}
 
