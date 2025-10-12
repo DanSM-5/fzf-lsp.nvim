@@ -44,6 +44,12 @@ local bin = { preview = preview_command }
 ---@field config? table lsp request config
 ---@field diagnostics? vim.Diagnostic[] diagnostics information
 
+---@alias fzf_lsp.action_callback fun(args: {
+---locations: vim.quickfix.entry[];
+---data: fzf_lsp.fzf_locations_data;
+---action_type: string;
+---})
+
 -- utility functions {{{
 
 -- local function get_sep()
@@ -726,7 +732,7 @@ local function common_sink(data, title, lines)
   -- Action is lua function
   if key ~= nil and type(action) == "function" then
     local ok, err = pcall(function ()
-      action({ locatios = locations, data = data, title = title })
+      action({ locatios = locations, data = data, action_type = title })
     end)
 
     if not ok and err ~= nil then
@@ -753,7 +759,7 @@ local function common_sink(data, title, lines)
     --- build temporary global functions
     --- it should not clash with anything... I hope
     _G._fzf_lsp_args_data = function()
-      return { location = locations, data = data, title = title }
+      return { location = locations, data = data, action_type = title }
     end
     _G._fzf_lsp_args_key = function()
       return key

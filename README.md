@@ -32,6 +32,28 @@ this plugin will respect your `g:fzf_command_prefix` setting.
 
 In general fzf-lsp.vim will respect your fzf.vim settings, alternatively you can override a specific settings with the fzf-lsp.vim equivalent:
 * `g:fzf_lsp_action`: the equivalent of `g:fzf_action`, it's a dictionary containing all the actions that fzf will do in case of specific input
+  - You can use VimL funcrefs or lua functions. All functions will have the following signature
+
+```lua
+---@class fzf_lsp.fzf_locations_data
+---@field locs vim.quickfix.entry[] parsed location data
+---@field infile boolean if it is present on current file
+---@field results? any|any[] lsp results data
+---@field ctx? lsp.HandlerContext lsp context handler
+---@field config? table lsp request config
+---@field diagnostics? vim.Diagnostic[] diagnostics information
+
+---@alias fzf_lsp.action_callback fun(args: {
+---locations: vim.quickfix.entry[];
+---data: fzf_lsp.fzf_locations_data;
+---action_type: string;
+---})
+
+-- locations: list of selected entries from fzf
+-- data: context data used to generate the list
+-- action_type: string that can be used to identify the type of call. Same as prompt in fzf minuse the ">" symbol
+```
+
 * `g:fzf_lsp_layout`: the equivalent of `g:fzf_layout`, dictionary with the fzf_window layout
 * `g:fzf_lsp_colors`: the equivalent of `g:fzf_colors`, it's a string that will be passed to fzf to set colors
 * `g:fzf_lsp_preview_window`: the equivalent of `g:fzf_preview_window`, it's a list containing the preview windows position and key bindings
