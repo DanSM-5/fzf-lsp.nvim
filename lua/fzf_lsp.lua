@@ -725,14 +725,12 @@ local function common_sink(data, title, lines)
 
   -- Action is lua function
   if key ~= nil and type(action) == "function" then
-    for _, loc in ipairs(locations) do
-      local ok, err = pcall(function ()
-        action({ location = loc, data = data, title = title })
-      end)
+    local ok, err = pcall(function ()
+      action({ locatios = locations, data = data, title = title })
+    end)
 
-      if not ok and err ~= nil then
-        vim.notify(err, vim.log.levels.ERROR)
-      end
+    if not ok and err ~= nil then
+      vim.notify(err, vim.log.levels.ERROR)
     end
     return
   end
@@ -751,30 +749,30 @@ local function common_sink(data, title, lines)
     --   call g:foo.a(v:lua.test_f.foo())
     -- ]])
 
-    for _, loc in ipairs(locations) do
-      --- build temporary global functions
-      --- it should not clash with anything... I hope
-      _G._fzf_lsp_args_data = function()
-        return { location = loc, data = data, title = title }
-      end
-      _G._fzf_lsp_args_key = function()
-        return key
-      end
-
-      local ok, err = pcall(function()
-        vim.cmd([[
-          call g:fzf_lsp_action[v:lua._fzf_lsp_args_key()](v:lua._fzf_lsp_args_data())
-        ]])
-      end)
-
-      if not ok and err ~= nil then
-        vim.notify(err, vim.log.levels.ERROR)
-      end
-
-      -- cleanup
-      _G._fzf_lsp_args_data = nil
-      _G._fzf_lsp_args_key = nil
+    --- HACK:
+    --- build temporary global functions
+    --- it should not clash with anything... I hope
+    _G._fzf_lsp_args_data = function()
+      return { location = locations, data = data, title = title }
     end
+    _G._fzf_lsp_args_key = function()
+      return key
+    end
+
+    local ok, err = pcall(function()
+      vim.cmd([[
+        " The global functions are able to send back data to VimL 😄
+        call g:fzf_lsp_action[v:lua._fzf_lsp_args_key()](v:lua._fzf_lsp_args_data())
+      ]])
+    end)
+
+    if not ok and err ~= nil then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+
+    -- cleanup
+    _G._fzf_lsp_args_data = nil
+    _G._fzf_lsp_args_key = nil
     return
   end
 
