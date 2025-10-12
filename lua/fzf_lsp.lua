@@ -1001,6 +1001,7 @@ function M.diagnostic(bang, opts)
 
   local bufnr = opts.bufnr or api.nvim_get_current_buf()
   local show_all = bufnr == "*"
+  bufnr = (type(bufnr) == "string" and not show_all) and tonumber(bufnr) or bufnr
 
   local buffer_diags
   if show_all then
