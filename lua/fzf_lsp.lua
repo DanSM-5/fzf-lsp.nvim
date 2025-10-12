@@ -122,39 +122,39 @@ local function extract_result(results_lsp)
 end
 
 -- TODO: Remove sample text
-vim.keymap.set('n', '<C-t>', function ()
-  local method = 'textDocument/codeAction'
-  local bufnr = vim.api.nvim_get_current_buf()
-  local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
-  if lua_ls == nil then
-    return
-  end
-  local param_l = vim.lsp.util.make_range_params(0, lua_ls.offset_encoding)
-  param_l.context = {
-    diagnostics = vim.diagnostic.get(bufnr, {
-      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
-    })
-  }
-  -- lua_ls:request(method, param_l, function (err, result, context, config)
-  --   vim.print('err:', err)
-  --   vim.print('res:', result)
-  --   vim.print('ctx:', context)
-  --   vim.print('conf:', config)
-  -- end, bufnr)
-
-  vim.lsp.buf_request_all(bufnr, method, param_l, function (results, context, config)
-    vim.print('res:', results)
-    vim.print('ctx:', context)
-    vim.print('conf:', config)
-  end)
-
-  -- -- sync
-  -- local results_lsp, err = vim.lsp.buf_request_sync(
-  --   bufnr, method, param_l, 60 * 1000
-  -- )
-  -- vim.print('res:', next(results_lsp))
-  -- vim.print('err:', err)
-end)
+-- vim.keymap.set('n', '<C-t>', function ()
+--   local method = 'textDocument/codeAction'
+--   local bufnr = vim.api.nvim_get_current_buf()
+--   local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
+--   if lua_ls == nil then
+--     return
+--   end
+--   local param_l = vim.lsp.util.make_range_params(0, lua_ls.offset_encoding)
+--   param_l.context = {
+--     diagnostics = vim.diagnostic.get(bufnr, {
+--       lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
+--     })
+--   }
+--   -- lua_ls:request(method, param_l, function (err, result, context, config)
+--   --   vim.print('err:', err)
+--   --   vim.print('res:', result)
+--   --   vim.print('ctx:', context)
+--   --   vim.print('conf:', config)
+--   -- end, bufnr)
+--
+--   vim.lsp.buf_request_all(bufnr, method, param_l, function (results, context, config)
+--     vim.print('res:', results)
+--     vim.print('ctx:', context)
+--     vim.print('conf:', config)
+--   end)
+--
+--   -- -- sync
+--   -- local results_lsp, err = vim.lsp.buf_request_sync(
+--   --   bufnr, method, param_l, 60 * 1000
+--   -- )
+--   -- vim.print('res:', next(results_lsp))
+--   -- vim.print('err:', err)
+-- end)
 
 ---@class FzfLspContextCall
 ---@field method string Lsp method to call
