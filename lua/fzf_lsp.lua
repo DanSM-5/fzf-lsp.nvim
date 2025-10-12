@@ -514,13 +514,6 @@ local function jump_to_location(location, data)
     },
   }
 
-
-    -- E5108: Lua: .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:287: attempt to compare number with nil
-    -- stack traceback:
-    --     .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:287: in function 'get_line_byte_from_position'
-    --     .../nvim/nvim-win64/share/nvim/runtime/lua/vim/lsp/util.lua:1034: in function 'show_document'
-    --     [string ":lua"]:1: in main chunk
-
   vim.lsp.util.show_document(lspLocation, encoding, { focus = true })
 end
 
