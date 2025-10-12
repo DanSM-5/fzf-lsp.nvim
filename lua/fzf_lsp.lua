@@ -1,7 +1,6 @@
 local vim, fn, api, g = vim, vim.fn, vim.api, vim.g
 
 local ansi = require("fzf_lsp.ansicolors")
--- local strings = require("plenary.strings")
 
 local kind_to_color = {
   ["Class"] = "blue",
@@ -38,32 +37,27 @@ local bin = { preview = preview_command }
 
 
 ---@class fzf_lsp.fzf_locations_data
+---@field locs vim.quickfix.entry[] parsed location data
+---@field infile boolean if it is present on current file
 ---@field results? any|any[] lsp results data
 ---@field ctx? lsp.HandlerContext lsp context handler
 ---@field config? table lsp request config
----@field infile boolean if it is present on current file
 ---@field diagnostics? vim.Diagnostic[] diagnostics information
 
 -- utility functions {{{
 
--- local function partial(func, arg)
---   return (function(...)
---     return func(arg, ...)
---   end)
+-- local function get_sep()
+--   if jit then
+--     local os = string.lower(jit.os)
+--     if os ~= "windows" then
+--       return "/"
+--     else
+--       return "\\"
+--     end
+--   else
+--     return package.config:sub(1, 1)
+--   end
 -- end
-
-local function get_sep()
-  if jit then
-    local os = string.lower(jit.os)
-    if os ~= "windows" then
-      return "/"
-    else
-      return "\\"
-    end
-  else
-    return package.config:sub(1, 1)
-  end
-end
 
 local strdisplaywidth = (function()
   local fallback = function(str, col)
@@ -245,20 +239,6 @@ local function mk_handler(f)
   return function(...)
     -- End support for neovim 0.10 or below
     f(...)
-
-    -- local config_or_client_id = select(4, ...)
-    -- local is_new = type(config_or_client_id) ~= 'number'
-    -- if is_new then
-    --   f(...)
-    -- else
-    --   local err = select(1, ...)
-    --   local method = select(2, ...)
-    --   local result = select(3, ...)
-    --   local client_id = select(4, ...)
-    --   local bufnr = select(5, ...)
-    --   local config = select(6, ...)
-    --   f(err, result, { method = method, client_id = client_id, bufnr = bufnr }, config)
-    -- end
   end
 end
 
@@ -415,94 +395,59 @@ local function code_action_execute(action, client)
   end
 end
 
-local function joinloc_raw(loc, include_filename)
-  return fnamemodify(loc['filename'], include_filename)
-    .. loc["lnum"]
-    .. ":"
-    .. loc["col"]
-    .. ": "
-    .. vim.trim(loc["text"])
+---@type fzf_lsp.JoinLocFunc
+local function joinloc_raw(loc, idx, include_filename)
+  return string.format("%d %s%d:%d: %s",
+    idx,
+    fnamemodify(loc["filename"], include_filename),
+    loc["lnum"],
+    loc["col"],
+    vim.trim(loc["text"])
+  )
 end
 
-local function joinloc_pretty(loc, include_filename)
+---@type fzf_lsp.JoinLocFunc
+local function joinloc_pretty(loc, idx, include_filename)
   local width = g.fzf_lsp_width
   local text = vim.trim(loc["text"]:gsub("%b[]", ""))
-  return align_str(truncate(text, width), width)
-    .. " "
-    .. colored_kind(loc["kind"])
-    .. string.rep(" ", 50)
-    .. "\x01 "
-    .. fnamemodify(loc["filename"], include_filename)
-    .. loc["lnum"]
-    .. ":"
-    .. loc["col"]
-    .. ":"
+
+  return string.format("%d \x01 %s %s%s\x01 %s%d:%d:",
+    idx,
+    align_str(truncate(text, width), width),
+    colored_kind(loc["kind"]),
+    string.rep(" ", 50),
+    fnamemodify(loc["filename"], include_filename),
+    loc["lnum"],
+    loc["col"]
+  )
 end
 
-local function extloc_raw(line, include_filename)
-  local path, lnum, col, text, bufnr
+---@alias fzf_lsp.JoinDiaFunc fun(entry: vim.quickfix.entry, idx: integer, include_filename: boolean): string
+---@alias fzf_lsp.JoinLocFunc fun(loc: vim.quickfix.entry, idx: integer, include_filename: boolean): string
+---@alias fzf_lsp.ExtLocFunc fun(line: string, idx: integer, data: fzf_lsp.fzf_locations_data, include_filename: boolean): vim.quickfix.entry
 
-  if include_filename then
-    path, lnum, col, text = line:match("([^:]*):([^:]*):([^:]*):(.*)")
-  else
-    bufnr = api.nvim_get_current_buf()
-    path = fn.expand("%")
-    lnum, col, text = line:match("([^:]*):([^:]*):(.*)")
-  end
-
-  return {
-    bufnr = bufnr,
-    filename = path,
-    lnum = lnum,
-    col = col,
-    text = text or "",
-  }
+---@type fzf_lsp.JoinDiaFunc
+local function joindiag_raw(e, idx, include_filename)
+  return string.format("%d %s%d:%d: %s: %s",
+    idx,
+    fnamemodify(e["filename"], include_filename),
+    e["lnum"],
+    e["col"],
+    e["type"],
+    e["text"]:gsub("%s", " ")
+  )
 end
 
-local function extloc_pretty(line, include_filename)
-  local split = vim.split(line, "\x01 ")
-  local text = split[1]
-  local file = split[2]
-
-  local path, lnum, col, bufnr
-  if include_filename then
-    path, lnum, col = file:match("([^:]*):([^:]*):([^:]*):")
-  else
-    bufnr = api.nvim_get_current_buf()
-    path = fn.expand("%")
-    lnum, col = file:match("([^:]*):([^:]*):")
-  end
-
-  return {
-    bufnr = bufnr,
-    filename = path,
-    lnum = lnum,
-    col = col,
-    text = text or "",
-  }
-end
-
-local function joindiag_raw(e, include_filename)
-  return fnamemodify(e["filename"], include_filename)
-    .. e["lnum"]
-    .. ':'
-    .. e["col"]
-    .. ': '
-    .. e["type"]
-    .. ': '
-    .. e["text"]:gsub("%s", " ")
-end
-
-local function joindiag_pretty(e, include_filename)
-  return e["type"]
-    .. ": "
-    .. e["text"]:gsub("%s", " ")
-    .. "\x01 "
-    .. fnamemodify(e["filename"], include_filename)
-    .. e["lnum"]
-    .. ":"
-    .. e["col"]
-    .. ":"
+---@type fzf_lsp.JoinDiaFunc
+local function joindiag_pretty(e, idx, include_filename)
+  return string.format("%d \x01 %s: %s\x01 %s%d:%d:",
+    idx,
+    e["type"],
+    e["text"]:gsub("%s", " "),
+    fnamemodify(e["filename"], include_filename),
+    e["lnum"],
+    e["col"]
+  )
 end
 
 ---Get lines to display in fzf
@@ -513,8 +458,8 @@ local function lines_from_locations(locations, include_filename)
   local joinfn = g.fzf_lsp_pretty and joinloc_pretty or joinloc_raw
 
   local lines = {}
-  for _, loc in ipairs(locations) do
-    table.insert(lines, joinfn(loc, include_filename))
+  for idx, loc in ipairs(locations) do
+    table.insert(lines, joinfn(loc, idx, include_filename))
   end
 
   return lines
@@ -522,15 +467,17 @@ end
 
 ---Get lines to display in fzf
 ---@param lines string[] List of locations in quickfix format
----@param include_filename boolean whether or not to include the filename
+---@param data fzf_lsp.fzf_locations_data Context data
 ---@return vim.quickfix.entry[] list quickfix information
-local function locations_from_lines(lines, include_filename)
-  local extractfn = g.fzf_lsp_pretty and extloc_pretty or extloc_raw
-
+local function locations_from_lines(lines, data)
+  -- local is_diag = data.diagnostics ~= nil
   ---@type vim.quickfix.entry[]
+  local src = data.locs or {}
   local locations = {}
-  for _, l in ipairs(lines) do
-    table.insert(locations, extractfn(l, include_filename))
+
+  for _, line in ipairs(lines) do
+    local idx = assert(tonumber(vim.split(line, " ")[1]), "Could not recover index")
+    locations[#locations+1] = assert(src[idx], "Missing item from source")
   end
 
   return locations
@@ -542,7 +489,7 @@ end
 ---@param ctx lsp.HandlerContext
 ---@param _ table?
 ---@param error_message string message to show on error
----@return table|nil
+---@return vim.quickfix.entry[]|nil
 local function location_handler(err, locations, ctx, _, error_message)
   if err ~= nil then
     perror(err)
@@ -561,24 +508,28 @@ local function location_handler(err, locations, ctx, _, error_message)
   if vim.islist(locations) then
     if #locations == 1 then
       -- Single location. Focus and return
-      -- vim.lsp.util.jump_to_location(locations[1], client.offset_encoding)
       vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
 
       return
     end
   else
     -- Single location. Focus and return
-    -- vim.lsp.util.jump_to_location(locations, client.offset_encoding)
     vim.lsp.util.show_document(locations, client.offset_encoding, { focus = true })
     return
   end
 
-  return lines_from_locations(
-    vim.lsp.util.locations_to_items(locations, client.offset_encoding), true
-  )
+  return vim.lsp.util.locations_to_items(locations, client.offset_encoding)
 end
 
-local function call_hierarchy_handler(direction, err, result, _, _, error_message)
+---Handler for call hierarchy methods
+---@param direction? "to"|"from"
+---@param err? lsp.ResponseError
+---@param result any[]
+---@param ctx lsp.HandlerContext
+---@param _ table?
+---@param error_message string message to show on error
+---@return vim.quickfix.entry[]|nil
+local function call_hierarchy_handler(direction, err, result, ctx, _, error_message)
   if err ~= nil then
     perror(err)
     return
@@ -589,21 +540,52 @@ local function call_hierarchy_handler(direction, err, result, _, _, error_messag
     return
   end
 
+  ---@type vim.lsp.Client?
+  local client = (ctx and ctx.client_id ~= nil) and vim.lsp.get_client_by_id(ctx.client_id) or vim.lsp.get_clients({ bufnr = 0 })[1]
+
+  local encoding = "utf-16"
+  if client ~= nil then
+    encoding = client.offset_encoding
+  end
+
   ---@type vim.quickfix.entry[]
   local items = {}
   for _, call_hierarchy_call in pairs(result) do
     local call_hierarchy_item = call_hierarchy_call[direction]
     for _, range in pairs(call_hierarchy_call.fromRanges) do
+      local uri = assert(call_hierarchy_item.uri)
+      local filename = assert(vim.uri_to_fname(uri))
+      local bufnr = assert(vim.uri_to_bufnr(uri))
+      -- Ensure buffer is loaded to get content
+      vim.fn.bufload(bufnr)
+
+      local sline = vim.api.nvim_buf_get_lines(bufnr, range.start.line, range.start.line + 1, false)[1]
+      local eline = vim.api.nvim_buf_get_lines(bufnr, range['end'].line, range['end'].line + 1, false)[1]
+      local col = vim.str_byteindex(sline, encoding, range.start.character, false) + 1
+      local end_col = vim.str_byteindex(eline, encoding, range['end'].character, false) + 1
+
       table.insert(items, {
-        filename = assert(vim.uri_to_fname(call_hierarchy_item.uri)),
-        text = call_hierarchy_item.name,
+        bufnr = bufnr,
+        filename = filename,
+        -- module = ...,
         lnum = range.start.line + 1,
-        col = range.start.character + 1,
-      })
+        end_lnum = range['end'].line + 1,
+        -- pattern = ...,
+        col = col,
+        -- vcol = ...,
+        end_col = end_col,
+        text = call_hierarchy_item.name,
+        -- type = ...,
+        -- valid = ...,
+        user_data = {
+          item = call_hierarchy_item,
+          direction = direction,
+        },
+      } --[[@as vim.quickfix.entry]])
     end
   end
 
-  return lines_from_locations(items, true)
+  return items
 end
 
 local call_hierarchy_handler_from = partial(call_hierarchy_handler, "from")
@@ -649,6 +631,7 @@ end
 ---@param location vim.quickfix.entry
 ---@param data fzf_lsp.fzf_locations_data
 local function jump_to_location(location, data)
+  vim.print(location)
   local uri = vim.uri_from_fname(location.filename)
   local bufnr = vim.uri_to_bufnr(uri)
   vim.fn.bufload(bufnr) -- ensure buffer is loaded into memory or buffer will be empty
@@ -705,7 +688,7 @@ local function common_sink(data, title, lines)
     action = g.fzf_lsp_action[key]
   end
 
-  local locations = locations_from_lines(lines, not data.infile)
+  local locations = locations_from_lines(lines, data)
   if action == nil and #lines > 1 then
     vim.fn.setqflist({}, ' ', {
         title = title or 'Language Server';
@@ -858,7 +841,7 @@ end
 ---@param bang 0|1 fzf fullscreen option. 1 for fullscreen, default 0.
 ---@param header string header to show in fzf `--header`
 ---@param prompt string prompt to show in fzf `--prompt`
----@param source any[]
+---@param source string[] lines to show in fzf
 ---@param data fzf_lsp.fzf_locations_data
 local function fzf_locations(bang, header, prompt, source, data)
   local preview_cmd
@@ -869,8 +852,8 @@ local function fzf_locations(bang, header, prompt, source, data)
     )
   else
     preview_cmd = (data.infile and
-      (bin.preview .. " " .. fn.expand("%") .. ":{}") or
-      (bin.preview .. " {}")
+      (bin.preview .. " " .. fn.expand("%") .. ":{2..}") or
+      (bin.preview .. " {2..}")
     )
   end
 
@@ -878,6 +861,7 @@ local function fzf_locations(bang, header, prompt, source, data)
     "--cycle",
     "--ansi",
     "--multi",
+    "--with-nth", "2..",
     "--bind",
     "ctrl-a:select-all,ctrl-d:deselect-all",
     "--bind",
@@ -908,7 +892,7 @@ local function fzf_locations(bang, header, prompt, source, data)
   end
 
   if g.fzf_lsp_pretty then
-    vim.list_extend(options, {"--delimiter", "\x01 ", "--nth", "1"})
+    vim.list_extend(options, {"--delimiter", "\x01 ", "--nth", "1" })
   end
 
   if g.fzf_lsp_action and not vim.tbl_isempty(g.fzf_lsp_action) then
@@ -1037,45 +1021,49 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function definition_handler(bang, err, result, ctx, config)
-  local results = location_handler(
+  local locs = location_handler(
     err, result, ctx, config, "Definition not found"
   )
-  if results and not vim.tbl_isempty(results) then
-    local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Definitions", results, data)
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
+    local data = { results = result, ctx = ctx, config = config, locs = locs , infile = false }
+    fzf_locations(bang, "", "Definitions", lines, data)
   end
 end
 
 ---@type fzf_lsp.LspHandler
 local function declaration_handler(bang, err, result, ctx, config)
-  local results = location_handler(
+  local locs = location_handler(
     err, result, ctx, config, "Declaration not found"
   )
-  if results and not vim.tbl_isempty(results) then
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
     local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Declarations", results, data)
+    fzf_locations(bang, "", "Declarations", lines, data)
   end
 end
 
 ---@type fzf_lsp.LspHandler
 local function type_definition_handler(bang, err, result, ctx, config)
-  local results = location_handler(
+  local locs = location_handler(
     err, result, ctx, config, "Type Definition not found"
   )
-  if results and not vim.tbl_isempty(results) then
-    local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Type Definitions", results, data)
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
+    local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
+    fzf_locations(bang, "", "Type Definitions", lines, data)
   end
 end
 
 ---@type fzf_lsp.LspHandler
 local function implementation_handler(bang, err, result, ctx, config)
-  local results = location_handler(
+  local locs = location_handler(
     err, result, ctx, config, "Implementation not found"
   )
-  if results and not vim.tbl_isempty(results) then
-    local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Implementations", results, data)
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
+    local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
+    fzf_locations(bang, "", "Implementations", lines, data)
   end
 end
 
@@ -1103,11 +1091,10 @@ local function references_handler(bang, err, result, ctx, config)
     encoding = client.offset_encoding
   end
 
-  local lines = lines_from_locations(
-    vim.lsp.util.locations_to_items(result, encoding), true
-  )
+  local locs = vim.lsp.util.locations_to_items(result, encoding)
+  local lines = lines_from_locations(locs, true)
 
-  local data = { results = result, ctx = ctx, config = config, infile = false }
+  local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
   fzf_locations(bang, "", "References", lines, data)
 end
 
@@ -1135,10 +1122,9 @@ local function document_symbol_handler(bang, err, result, ctx, config)
     encoding = client.offset_encoding
   end
 
-local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding), false
-  )
-  local data = { results = result, ctx = ctx, config = config, infile = true }
+  local locs = vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding)
+  local lines = lines_from_locations(locs, false)
+  local data = { results = result, ctx = ctx, config = config, locs = locs, infile = true }
   fzf_locations(bang, "", "Document Symbols", lines, data)
 end
 
@@ -1166,32 +1152,33 @@ local function workspace_symbol_handler(bang, err, result, ctx, config)
     encoding = client.offset_encoding
   end
 
-  local lines = lines_from_locations(
-    vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding), true
-  )
-  local data = { results = result, ctx = ctx, config = config, infile = false }
+  local locs = vim.lsp.util.symbols_to_items(result, ctx.bufnr or 0, encoding)
+  local lines = lines_from_locations(locs, true)
+  local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
   fzf_locations(bang, "", "Workspace Symbols", lines, data)
 end
 
 ---@type fzf_lsp.LspHandler
 local function incoming_calls_handler(bang, err, result, ctx, config)
-  local results = call_hierarchy_handler_from(
+  local locs = call_hierarchy_handler_from(
     err, result, ctx, config, "Incoming calls not found"
   )
-  if results and not vim.tbl_isempty(results) then
-    local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Incoming Calls", results, data)
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
+    local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
+    fzf_locations(bang, "", "Incoming Calls", lines, data)
   end
 end
 
 ---@type fzf_lsp.LspHandler
 local function outgoing_calls_handler(bang, err, result, ctx, config)
-  local results = call_hierarchy_handler_to(
+  local locs = call_hierarchy_handler_to(
     err, result, ctx, config, "Outgoing calls not found"
   )
-  if results and not vim.tbl_isempty(results) then
-    local data = { results = result, ctx = ctx, config = config, infile = false }
-    fzf_locations(bang, "", "Outgoing Calls", results, data)
+  if locs and not vim.tbl_isempty(locs) then
+    local lines = lines_from_locations(locs, true)
+    local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
+    fzf_locations(bang, "", "Outgoing Calls", lines, data)
   end
 end
 -- }}}
@@ -1390,6 +1377,7 @@ function M.diagnostic(bang, opts)
   local severity = opts.severity
   local severity_limit = opts.severity_limit
 
+  ---@type vim.quickfix.entry[]
   local items = {}
   for _, diag in ipairs(buffer_diags) do
     if severity then
@@ -1411,23 +1399,33 @@ function M.diagnostic(bang, opts)
     end
 
     table.insert(items, {
+      bufnr = diag.bufnr,
       filename = vim.api.nvim_buf_get_name(diag.bufnr),
+      -- module = ...,
       lnum = diag.lnum + 1,
+      end_lnum = diag.end_lnum + 1,
+      -- pattern = ...,
       col = diag.col + 1,
+      -- vcol = ...,
+      end_col = diag.end_col + 1,
+      -- nr = ...,
       text = diag.message,
       type = vim.lsp.protocol.DiagnosticSeverity[diag.severity or
-      vim.lsp.protocol.DiagnosticSeverity.Error]
-    })
+      vim.lsp.protocol.DiagnosticSeverity.Error],
+      -- valid = ...,
+      user_data = diag,
+    } --[[@as vim.quickfix.entry]])
     ::continue::
   end
 
   table.sort(items, function(a, b) return a.lnum < b.lnum end)
 
+  ---@JoinDiaFunc
   local joinfn = g.fzf_lsp_pretty and joindiag_pretty or joindiag_raw
 
   local entries = {}
   for i, e in ipairs(items) do
-    entries[i] = joinfn(e, show_all)
+    entries[i] = joinfn(e, i, show_all)
   end
 
   if vim.tbl_isempty(entries) then
@@ -1435,7 +1433,7 @@ function M.diagnostic(bang, opts)
     return
   end
 
-  local data = { infile = not show_all, diagnostics = buffer_diags }
+  local data = { infile = not show_all, diagnostics = buffer_diags, locs = items }
   fzf_locations(bang, "", "Diagnostics", entries, data)
 end
 -- }}}
