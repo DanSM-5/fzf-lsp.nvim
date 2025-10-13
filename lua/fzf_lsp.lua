@@ -83,6 +83,7 @@ local bin = { preview = preview_command }
 ---@field severity? integer Buffer to apply diagnostics call
 ---@field severity_limit? integer Buffer to apply diagnostics call
 ---@field query? string Query for document symbols call
+---@field fzf_opts? string[] Override options for fzf command
 
 ---@class fzf_lsp.HandlerContext: lsp.HandlerContext
 ---@field opts fzf_lsp.CommonOpts Injected opts on the lsp.HandlerContext object
@@ -1152,6 +1153,19 @@ local function fzf_locations(bang, header, prompt, source, data)
   end
 
   vim.list_extend(options, { "--preview", preview_cmd })
+
+  -- Allow to override flags passed to fzf command
+  if g.fzf_lsp_override_opts and vim.islist(g.fzf_lsp_override_opts) and #g.fzf_lsp_override_opts > 0 then
+    vim.list_extend(options, g.fzf_lsp_override_opts)
+  end
+
+  if data.ctx
+    and data.ctx.opts
+    and vim.islist(data.ctx.opts.fzf_opts)
+    and #data.ctx.opts.fzf_opts > 0 then
+    vim.list_extend(options, data.ctx.opts.fzf_opts)
+  end
+
   fzf_run(fzf_wrap(name, {
     source = source,
     sink = partial(common_sink, data, prompt),
