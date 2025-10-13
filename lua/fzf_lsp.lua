@@ -312,6 +312,10 @@ end
 
 local function colored_kind(kind)
   local width = 10 -- max lenght of listed kinds
+  if not kind or type(kind) ~= string then
+    return string.rep(" ", width)
+  end
+
   local color = kind_to_color[kind] or "white"
   local escape = "%{bright}%{" .. color .. "}"
   local kindlen = #kind
