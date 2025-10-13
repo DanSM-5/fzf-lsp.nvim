@@ -685,14 +685,16 @@ local function prepare_call_hierarchy_handler(method, handler, err, result, ctx,
     }
 
     local error = nil
+    local lsp_result = nil
 
     if results then
       error = results.err
+      lsp_result = results.result
     elseif type(error) == "string" then
       error = { code = wait_result_reason[err_msg], message = err_msg }
     end
 
-    return handler(err, results, context)
+    return handler(err, lsp_result, context)
   end
 
   -- Async request
@@ -1560,14 +1562,16 @@ local function prepare_call_method(opts, handler, client)
     }
 
     local err = nil
+    local result = nil
 
     if results then
       err = results.err
+      result = results.result
     elseif type(error) == "string" then
       err = { code = wait_result_reason[error], message = error }
     end
 
-    return handler(err, results, ctx)
+    return handler(err, result, ctx)
   end
 
   -- Async request
