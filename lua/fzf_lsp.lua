@@ -13,6 +13,32 @@ local kind_to_color = {
   ["Property"] = "yellow",
   ["Struct"] = "red",
   ["Variable"] = "cyan",
+  ["Object"] = "red",
+  ["String"] = "blackbg}%{yellow",
+
+  ["Array"] = "green",
+  ["Branch"] = "whitebg}%{magenta",
+  ["Boolean"] = "blue",
+  ["Color"] = "redbg}%{white",
+  ["Constructor"] = "yellowbg}%{blue",
+  ["Enum"] = "blue",
+  ["EnumMember"] = "whitebg}%{blue",
+  ["Event"] = "green",
+  ["File"] = "orange",
+  ["Folder"] = "yellow",
+  ["Key"] = "lightgreen",
+  ["Keyword"] = "lightred",
+  ["Namespace"] = "turquoise",
+  ["Number"] = "blue",
+  ["Null"] = "turquoise",
+  ["Operator"] = "magenta",
+  ["Package"] = "whitealbg}%{black",
+  ["Reference"] = "magenta",
+  ["Snippet"] = "green",
+  ["Text"] = "yellow",
+  ["TypeParameter"] = "magentabg}%{white",
+  ["Unit"] = "black",
+  ["Value"] = "white",
 }
 
 local methods = {
@@ -287,9 +313,24 @@ end
 local function colored_kind(kind)
   local width = 10 -- max lenght of listed kinds
   local color = kind_to_color[kind] or "white"
-  return ansi.noReset("%{bright}%{" .. color .. "}")
-      .. align_str(truncate(kind or "", width), width)
-      .. ansi.noReset("%{reset}")
+  local escape = "%{bright}%{" .. color .. "}"
+  local kindlen = #kind
+  local padding =  width > kindlen and string.rep(" ", width - kindlen) or ""
+  return align_str(
+    string.format(
+      "%s%s%s%s",
+      ansi.noReset(escape),
+      truncate(kind or "", width),
+      ansi.noReset("%{reset}"),
+      padding
+    ), width)
+
+  -- return string.format(
+  --     "%s%s%s",
+  --     ansi.noReset(escape),
+  --     align_str(truncate(kind or "", width), width),
+  --     ansi.noReset("%{reset}")
+  --   )
 end
 -- }}}
 
