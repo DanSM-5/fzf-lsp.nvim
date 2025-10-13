@@ -111,24 +111,35 @@ Commands are just wrappers to the following function, each function take one opt
 
 ### Handlers
 
-Functions and commands are implemented using sync calls, if you want your calls to be async you can use the standard neovim calls setting his relative handler.
-To do that you can use the provided `setup` function, keeping in mind that this will replace all your handlers:
+Functions and commands are async by default. You can request a sync call by providing a `sync`
+flag in the opts object.
+
 ```lua
-require'fzf_lsp'.setup()
+require('fzf_lsp').definition_call({ sync = true })
 ```
+
+To setup global handlers for you you can use the provided `setup` function, keeping in mind that this will replace all your handlers:
+
+```lua
+require('fzf_lsp').setup()
+```
+
+> [!WARNING]
+> Since neovim 0.11 this only takes effect for server-to-client calls and not client-to-server.
+> For client-to-server you will need to call the fzf_lsp function directly.
 
 or you can manually setup your handlers. The provided handlers are:
 ```lua
-vim.lsp.handlers["textDocument/codeAction"] = require'fzf_lsp'.code_action_handler
-vim.lsp.handlers["textDocument/definition"] = require'fzf_lsp'.definition_handler
-vim.lsp.handlers["textDocument/declaration"] = require'fzf_lsp'.declaration_handler
-vim.lsp.handlers["textDocument/typeDefinition"] = require'fzf_lsp'.type_definition_handler
-vim.lsp.handlers["textDocument/implementation"] = require'fzf_lsp'.implementation_handler
-vim.lsp.handlers["textDocument/references"] = require'fzf_lsp'.references_handler
-vim.lsp.handlers["textDocument/documentSymbol"] = require'fzf_lsp'.document_symbol_handler
-vim.lsp.handlers["workspace/symbol"] = require'fzf_lsp'.workspace_symbol_handler
-vim.lsp.handlers["callHierarchy/incomingCalls"] = require'fzf_lsp'.incoming_calls_handler
-vim.lsp.handlers["callHierarchy/outgoingCalls"] = require'fzf_lsp'.outgoing_calls_handler
+vim.lsp.handlers["textDocument/codeAction"] = require('fzf_lsp').code_action_handler
+vim.lsp.handlers["textDocument/definition"] = require('fzf_lsp').definition_handler
+vim.lsp.handlers["textDocument/declaration"] = require('fzf_lsp').declaration_handler
+vim.lsp.handlers["textDocument/typeDefinition"] = require('fzf_lsp').type_definition_handler
+vim.lsp.handlers["textDocument/implementation"] = require('fzf_lsp').implementation_handler
+vim.lsp.handlers["textDocument/references"] = require('fzf_lsp').references_handler
+vim.lsp.handlers["textDocument/documentSymbol"] = require('fzf_lsp').document_symbol_handler
+vim.lsp.handlers["workspace/symbol"] = require('fzf_lsp').workspace_symbol_handler
+vim.lsp.handlers["callHierarchy/incomingCalls"] = require('fzf_lsp').incoming_calls_handler
+vim.lsp.handlers["callHierarchy/outgoingCalls"] = require('fzf_lsp').outgoing_calls_handler
 ```
 
 ##### Setup options
