@@ -1375,6 +1375,7 @@ function M.document_symbol(bang, opts)
 end
 
 function M.workspace_symbol(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.workspaceSymbol)
   if not client then
     return
