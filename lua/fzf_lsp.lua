@@ -19,6 +19,14 @@ local methods = {
   prepareCallHierarchy = "textDocument/prepareCallHierarchy",
   incomingCalls = "callHierarchy/incomingCalls",
   outgoingCalls = "callHierarchy/outgoingCalls",
+  codeAction = "textDocument/codeAction",
+  definition = "textDocument/definition",
+  declaration = "textDocument/declaration",
+  typeDefinition = "textDocument/typeDefinition",
+  implementation = "textDocument/implementation",
+  references = "textDocument/references",
+  documentSymbol = "textDocument/documentSymbol",
+  workspaceSymbol = "workspace/symbol",
 }
 
 local M = {}
@@ -1285,7 +1293,7 @@ end
 
 -- COMMANDS {{{
 function M.definition(bang, opts)
-  local client = find_client_with_provider("definitionProvider")
+  local client = find_client_with_provider(methods.definition)
   if not client then
     return
   end
@@ -1293,12 +1301,12 @@ function M.definition(bang, opts)
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
   call_lsp_method(
-    "textDocument/definition", params, opts, partial(definition_handler, bang), client
+    methods.definition, params, opts, partial(definition_handler, bang), client
   )
 end
 
 function M.declaration(bang, opts)
-  local client = find_client_with_provider("declarationProvider")
+  local client = find_client_with_provider(methods.declaration)
   if not client then
     return
   end
@@ -1306,12 +1314,12 @@ function M.declaration(bang, opts)
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
   call_lsp_method(
-    "textDocument/declaration", params, opts, partial(declaration_handler, bang), client
+    methods.declaration, params, opts, partial(declaration_handler, bang), client
   )
 end
 
 function M.type_definition(bang, opts)
-  local client = find_client_with_provider("typeDefinitionProvider")
+  local client = find_client_with_provider(methods.typeDefinition)
   if not client then
     return
   end
@@ -1319,12 +1327,12 @@ function M.type_definition(bang, opts)
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
   call_lsp_method(
-    "textDocument/typeDefinition", params, opts, partial(type_definition_handler, bang), client
+    methods.typeDefinition, params, opts, partial(type_definition_handler, bang), client
   )
 end
 
 function M.implementation(bang, opts)
-  local client = find_client_with_provider("implementationProvider")
+  local client = find_client_with_provider(methods.implementation)
   if  not client then
     return
   end
@@ -1332,14 +1340,14 @@ function M.implementation(bang, opts)
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
   call_lsp_method(
-    "textDocument/implementation", params, opts, partial(implementation_handler, bang), client
+    methods.implementation, params, opts, partial(implementation_handler, bang), client
   )
 end
 
 -- TODO: Use somthing like vim.tbl_extend to avoid the inject-field warning
 
 function M.references(bang, opts)
-  local client = find_client_with_provider("referencesProvider")
+  local client = find_client_with_provider(methods.references)
   if not client then
     return
   end
@@ -1349,12 +1357,12 @@ function M.references(bang, opts)
   ---@diagnostic disable-next-line: inject-field
   params.context = { includeDeclaration = true }
   call_lsp_method(
-    "textDocument/references", params, opts, partial(references_handler, bang), client
+    methods.references, params, opts, partial(references_handler, bang), client
   )
 end
 
 function M.document_symbol(bang, opts)
-  local client = find_client_with_provider("documentSymbolProvider")
+  local client = find_client_with_provider(methods.documentSymbol)
   if not client then
     return
   end
@@ -1362,19 +1370,19 @@ function M.document_symbol(bang, opts)
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_position_params(0, encoding)
   call_lsp_method(
-    "textDocument/documentSymbol", params, opts, partial(document_symbol_handler, bang), client
+    methods.documentSymbol, params, opts, partial(document_symbol_handler, bang), client
   )
 end
 
 function M.workspace_symbol(bang, opts)
-  local client = find_client_with_provider("workspaceSymbolProvider")
+  local client = find_client_with_provider(methods.workspaceSymbol)
   if not client then
     return
   end
 
   local params = { query = opts.query or '' }
   call_lsp_method(
-    "workspace/symbol", params, opts, partial(workspace_symbol_handler, bang), client
+    methods.workspaceSymbol, params, opts, partial(workspace_symbol_handler, bang), client
   )
 end
 
@@ -1426,7 +1434,7 @@ function M.outgoing_calls(bang, opts)
 end
 
 function M.code_action(bang, opts)
-  local client = find_client_with_provider("codeActionProvider")
+  local client = find_client_with_provider(methods.codeAction)
   if not client then
     return
   end
@@ -1441,12 +1449,12 @@ function M.code_action(bang, opts)
     })
   }
   call_lsp_method(
-    "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
+    methods.codeAction, params, opts, partial(code_action_handler, bang), client
   )
 end
 
 function M.range_code_action(bang, opts)
-  local client = find_client_with_provider("codeActionProvider")
+  local client = find_client_with_provider(methods.codeAction)
   if not client then
     return
   end
@@ -1461,7 +1469,7 @@ function M.range_code_action(bang, opts)
     })
   }
   call_lsp_method(
-    "textDocument/codeAction", params, opts, partial(code_action_handler, bang), client
+    methods.codeAction, params, opts, partial(code_action_handler, bang), client
   )
 end
 
@@ -1587,16 +1595,16 @@ M.setup = function(opts)
     setup_nvim_0_6()
   end
 
-  vim.lsp.handlers["textDocument/codeAction"] = M.code_action_handler
-  vim.lsp.handlers["textDocument/definition"] = M.definition_handler
-  vim.lsp.handlers["textDocument/declaration"] = M.declaration_handler
-  vim.lsp.handlers["textDocument/typeDefinition"] = M.type_definition_handler
-  vim.lsp.handlers["textDocument/implementation"] = M.implementation_handler
-  vim.lsp.handlers["textDocument/references"] = M.references_handler
-  vim.lsp.handlers["textDocument/documentSymbol"] = M.document_symbol_handler
-  vim.lsp.handlers["workspace/symbol"] = M.workspace_symbol_handler
-  vim.lsp.handlers["callHierarchy/incomingCalls"] = M.incoming_calls_handler
-  vim.lsp.handlers["callHierarchy/outgoingCalls"] = M.outgoing_calls_handler
+  vim.lsp.handlers[methods.codeAction] = M.code_action_handler
+  vim.lsp.handlers[methods.definition] = M.definition_handler
+  vim.lsp.handlers[methods.declaration] = M.declaration_handler
+  vim.lsp.handlers[methods.typeDefinition] = M.type_definition_handler
+  vim.lsp.handlers[methods.implementation] = M.implementation_handler
+  vim.lsp.handlers[methods.references] = M.references_handler
+  vim.lsp.handlers[methods.documentSymbol] = M.document_symbol_handler
+  vim.lsp.handlers[methods.workspaceSymbol] = M.workspace_symbol_handler
+  vim.lsp.handlers[methods.incomingCalls] = M.incoming_calls_handler
+  vim.lsp.handlers[methods.outgoingCalls] = M.outgoing_calls_handler
 end
 -- }}}
 
