@@ -15,6 +15,12 @@ local kind_to_color = {
   ["Variable"] = "cyan",
 }
 
+local methods = {
+  prepareCallHierarchy = "textDocument/prepareCallHierarchy",
+  incomingCalls = "callHierarchy/incomingCalls",
+  outgoingCalls = "callHierarchy/outgoingCalls",
+}
+
 local M = {}
 
 -- platform detection {{{
@@ -49,6 +55,9 @@ local bin = { preview = preview_command }
 ---data: fzf_lsp.fzf_locations_data;
 ---action_type: string;
 ---})
+
+---@class fzf_lsp.InjectedCodeAction: lsp.CodeAction
+---@field client_id integer the client_id that provided the code action
 
 -- utility functions {{{
 
@@ -229,12 +238,22 @@ local truncate = function(str, len, dots, direction)
 end
 
 local function partial(func, ...)
-  local partial_args = { ... }
-  return (function (...)
-    local args = { ... }
-    local all = table.move(args, 1, #args, #partial_args + 1, partial_args)
-    return func(unpack(all))
-  end)
+    local bound_args = {...}
+    local n_bound = select("#", ...) -- Count of bound arguments, including nils
+    return function(...)
+        local new_args = {...}
+        local n_new = select("#", ...) -- Count of new arguments, including nils
+        local args = {}
+        -- Copy bound arguments, preserving nils
+        for i = 1, n_bound do
+            args[i] = bound_args[i]
+        end
+        -- Append new arguments, preserving nils
+        for i = 1, n_new do
+            args[n_bound + i] = new_args[i]
+        end
+        return func(unpack(args, 1, n_bound + n_new))
+    end
 end
 
 local function perror(err)
@@ -267,6 +286,8 @@ end
 
 -- LSP utility {{{
 
+---@param results_lsp table<integer, { err: (lsp.ResponseError)?, result: any[], context: lsp.HandlerContext }>
+---@return lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]
 local function extract_result(results_lsp)
   if results_lsp then
     local results = {}
@@ -281,6 +302,8 @@ local function extract_result(results_lsp)
 
     return results
   end
+
+  return {}
 end
 
 -- TODO: Remove sample text
@@ -489,6 +512,55 @@ local function locations_from_lines(lines, data)
   return locations
 end
 
+
+---Check the response and allow the user to choose one option for the
+---call hierarchy request
+---@param call_hierarchy_items lsp.CallHierarchyItem[]
+---@return lsp.CallHierarchyItem|nil item from the call hierarchy response
+local function pick_call_hierarchy_item(call_hierarchy_items)
+  if not call_hierarchy_items then
+    return
+  end
+  if #call_hierarchy_items == 1 then
+    return call_hierarchy_items[1]
+  end
+  local items = {}
+  for i, item in ipairs(call_hierarchy_items) do
+    local entry = item.detail or item.name
+    table.insert(items, string.format('%d. %s', i, entry))
+  end
+  local choice = vim.fn.inputlist(items)
+  if choice < 1 or choice > #items then
+    return
+  end
+  return call_hierarchy_items[choice]
+end
+
+---Request call hierarchy request
+---@param method "callHierarchy/incomingCalls"|"callHierarchy/outgoingCalls"
+---@param handler lsp.Handler
+---@param err lsp.ResponseError
+---@param result lsp.CallHierarchyItem[]
+---@param ctx lsp.HandlerContext
+---@param _config? table
+local function prepare_call_hierarchy_handler(method, handler, err, result, ctx, _config)
+  if err then
+    vim.notify(err.message, vim.log.levels.WARN)
+    return
+  end
+  local call_hierarchy_item = pick_call_hierarchy_item(result)
+  local client = vim.lsp.get_client_by_id(ctx.client_id)
+  if client then
+    client:request(method, { item = call_hierarchy_item }, handler, ctx.bufnr)
+  else
+    vim.notify(
+      string.format('Client with id=%d disappeared during call hierarchy request', ctx.client_id),
+      vim.log.levels.WARN
+    )
+  end
+end
+
+
 ---Location handler for lsp methods
 ---@param err? lsp.ResponseError
 ---@param locations lsp.Location|lsp.LocationLink|lsp.Location[]|lsp.LocationLink[]
@@ -528,9 +600,9 @@ local function location_handler(err, locations, ctx, _, error_message)
 end
 
 ---Handler for call hierarchy methods
----@param direction? "to"|"from"
+---@param direction "to"|"from"
 ---@param err? lsp.ResponseError
----@param result any[]
+---@param result lsp.CallHierarchyIncomingCall[]|lsp.CallHierarchyOutgoingCall[]
 ---@param ctx lsp.HandlerContext
 ---@param _ table?
 ---@param error_message string message to show on error
@@ -557,38 +629,47 @@ local function call_hierarchy_handler(direction, err, result, ctx, _, error_mess
   ---@type vim.quickfix.entry[]
   local items = {}
   for _, call_hierarchy_call in pairs(result) do
+    ---@type lsp.CallHierarchyItem
     local call_hierarchy_item = call_hierarchy_call[direction]
-    for _, range in pairs(call_hierarchy_call.fromRanges) do
-      local uri = assert(call_hierarchy_item.uri)
-      local filename = assert(vim.uri_to_fname(uri))
-      local bufnr = assert(vim.uri_to_bufnr(uri))
-      -- Ensure buffer is loaded to get content
-      vim.fn.bufload(bufnr)
+    -- TODO: explore how to use .fromRanges
+    -- for _, range in pairs(call_hierarchy_call.fromRanges) do
+    local range = assert(call_hierarchy_item.selectionRange)
+    local uri = assert(call_hierarchy_item.uri)
+    local filename = assert(vim.uri_to_fname(uri))
+    local bufnr = assert(vim.uri_to_bufnr(uri))
+    -- Ensure buffer is loaded to get content
+    vim.fn.bufload(bufnr)
 
-      local sline = vim.api.nvim_buf_get_lines(bufnr, range.start.line, range.start.line + 1, false)[1]
-      local eline = vim.api.nvim_buf_get_lines(bufnr, range['end'].line, range['end'].line + 1, false)[1]
-      local col = vim.str_byteindex(sline, encoding, range.start.character, false) + 1
-      local end_col = vim.str_byteindex(eline, encoding, range['end'].character, false) + 1
+    -- vim.print('range:', range)
+    -- vim.print('buff:', bufnr)
+    -- vim.print('filename:', filename)
+    local sline = vim.api.nvim_buf_get_lines(bufnr, range.start.line, range.start.line + 1, false)[1]
+    local eline = vim.api.nvim_buf_get_lines(bufnr, range['end'].line, range['end'].line + 1, false)[1]
+    local col = vim.str_byteindex(sline, encoding, range.start.character, false) + 1
+    local end_col = vim.str_byteindex(eline, encoding, range['end'].character, false) + 1
 
-      table.insert(items, {
-        bufnr = bufnr,
-        filename = filename,
-        -- module = ...,
-        lnum = range.start.line + 1,
-        end_lnum = range['end'].line + 1,
-        -- pattern = ...,
-        col = col,
-        -- vcol = ...,
-        end_col = end_col,
-        text = call_hierarchy_item.name,
-        -- type = ...,
-        -- valid = ...,
-        user_data = {
-          item = call_hierarchy_item,
-          direction = direction,
-        },
-      } --[[@as vim.quickfix.entry]])
-    end
+    table.insert(items, {
+      bufnr = bufnr,
+      filename = filename,
+      -- module = ...,
+      lnum = range.start.line + 1,
+      end_lnum = range['end'].line + 1,
+      -- pattern = ...,
+      col = col,
+      -- col = range.start.character + 1,
+      -- vcol = ...,
+      end_col = end_col,
+      -- end_col = range.start.character + 1,
+      text = call_hierarchy_item.name,
+      -- type = ...,
+      -- valid = ...,
+      user_data = {
+        item = call_hierarchy_item,
+        direction = direction,
+      },
+    } --[[@as vim.quickfix.entry]])
+
+    ::continue::
   end
 
   return items
@@ -596,6 +677,14 @@ end
 
 local call_hierarchy_handler_from = partial(call_hierarchy_handler, "from")
 local call_hierarchy_handler_to = partial(call_hierarchy_handler, "to")
+---@type fun(handler: lsp.Handler, err: lsp.ResponseError, result: lsp.CallHierarchyIncomingCall[], ctx: lsp.HandlerContext)
+local prepare_call_hierarchy_handler_from = partial(
+  prepare_call_hierarchy_handler, methods.incomingCalls
+)
+---@type fun(handler: lsp.Handler, err: lsp.ResponseError, result: lsp.CallHierarchyOutgoingCall[], ctx: lsp.HandlerContext)
+local prepare_call_hierarchy_handler_to = partial(
+  prepare_call_hierarchy_handler, methods.outgoingCalls
+)
 -- }}}
 
 -- FZF functions {{{
@@ -637,7 +726,6 @@ end
 ---@param location vim.quickfix.entry
 ---@param data fzf_lsp.fzf_locations_data
 local function jump_to_location(location, data)
-  vim.print(location)
   local uri = vim.uri_from_fname(location.filename)
   local bufnr = vim.uri_to_bufnr(uri)
   vim.fn.bufload(bufnr) -- ensure buffer is loaded into memory or buffer will be empty
@@ -928,6 +1016,11 @@ local function fzf_locations(bang, header, prompt, source, data)
   }, bang))
 end
 
+---Show code actions in fzf
+---@param bang 0|1
+---@param header string string to show as header in fzf
+---@param prompt string string to show as prompt in fzf
+---@param actions fzf_lsp.InjectedCodeAction
 local function fzf_code_actions(bang, header, prompt, actions)
   local lines = {}
   for i, a in ipairs(actions) do
@@ -994,18 +1087,19 @@ end
 ---@alias fzf_lsp.LspHandler fun(
 ---bang: 0|1,
 ---err: lsp.ResponseError,
----result: any[],
+---result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[],
 ---ctx: lsp.HandlerContext,
 ---config: table?)
 
 ---@alias fzf_lsp.PartialLspHandler fun(
 ---err?: lsp.ResponseError,
----result: any[],
+---result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[],
 ---ctx: lsp.HandlerContext,
 ---config: table?)
 
 ---@type fzf_lsp.LspHandler
 local function code_action_handler(bang, err, result, _, _)
+  ---@cast result lsp.CodeAction[]
   if err ~= nil then
     perror(err)
     return
@@ -1104,6 +1198,7 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function document_symbol_handler(bang, err, result, ctx, config)
+  ---@cast result lsp.DocumentSymbol[]
   if err ~= nil then
     perror(err)
     return
@@ -1134,6 +1229,7 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function workspace_symbol_handler(bang, err, result, ctx, config)
+  ---@cast result lsp.WorkspaceSymbol[]
   if err ~= nil then
     perror(err)
     return
@@ -1164,6 +1260,7 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function incoming_calls_handler(bang, err, result, ctx, config)
+  ---@cast result lsp.CallHierarchyIncomingCall[]
   local locs = call_hierarchy_handler_from(
     err, result, ctx, config, "Incoming calls not found"
   )
@@ -1176,6 +1273,7 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function outgoing_calls_handler(bang, err, result, ctx, config)
+  ---@cast result lsp.CallHierarchyOutgoingCall[]
   local locs = call_hierarchy_handler_to(
     err, result, ctx, config, "Outgoing calls not found"
   )
@@ -1283,45 +1381,50 @@ function M.workspace_symbol(bang, opts)
 end
 
 function M.incoming_calls(bang, opts)
-  local client = find_client_with_provider("callHierarchyProvider")
+  local client = find_client_with_provider(methods.prepareCallHierarchy)
   if not client then
     return
   end
 
+  local bufnr = api.nvim_get_current_buf()
   local encoding = client.offset_encoding
-  -- local params = vim.lsp.util.make_position_params(0, encoding)
-  local range = vim.lsp.util.make_range_params(0, encoding)
-  local params = {
-    item = {
-      uri = range.textDocument.uri,
-      range = range.range,
-      selectionRange = range.range,
-    },
-  }
-  call_lsp_method(
-    "callHierarchy/incomingCalls", params, opts, partial(incoming_calls_handler, bang), client
-  )
+  ---@type lsp.CallHierarchyPrepareParams
+  local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
+
+  client:request(methods.prepareCallHierarchy, params, function (err, results, ctx, _config)
+    ---@diagnostic disable-next-line: inject-field
+    ctx.opts = opts
+
+    prepare_call_hierarchy_handler_from(
+      partial(incoming_calls_handler, bang),
+      err,
+      results,
+      ctx
+    )
+  end, bufnr)
 end
 
 function M.outgoing_calls(bang, opts)
-  local client = find_client_with_provider("callHierarchyProvider")
+  local client = find_client_with_provider(methods.prepareCallHierarchy)
   if not client then
     return
   end
 
+  local bufnr = api.nvim_get_current_buf()
   local encoding = client.offset_encoding
-  -- local params = vim.lsp.util.make_position_params(0, encoding)
-  local range = vim.lsp.util.make_range_params(0, encoding)
-  local params = {
-    item = {
-      uri = range.textDocument.uri,
-      range = range.range,
-      selectionRange = range.range,
-    },
-  }
-  call_lsp_method(
-    "callHierarchy/outgoingCalls", params, opts, partial(outgoing_calls_handler, bang), client
-  )
+  ---@type lsp.CallHierarchyPrepareParams
+  local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
+
+  client:request(methods.prepareCallHierarchy, params, function (err, results, ctx, _config)
+    ---@diagnostic disable-next-line: inject-field
+    ctx.opts = opts
+    prepare_call_hierarchy_handler_to(
+      partial(outgoing_calls_handler, bang),
+      err,
+      results,
+      ctx
+    )
+  end, bufnr)
 end
 
 function M.code_action(bang, opts)
