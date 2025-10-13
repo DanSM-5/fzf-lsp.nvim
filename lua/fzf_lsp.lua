@@ -668,8 +668,6 @@ local function call_hierarchy_handler(direction, err, result, ctx, _, error_mess
         direction = direction,
       },
     } --[[@as vim.quickfix.entry]])
-
-    ::continue::
   end
 
   return items
