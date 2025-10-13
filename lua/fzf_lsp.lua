@@ -4,7 +4,7 @@ local ansi = require("fzf_lsp.ansicolors")
 
 local kind_to_color = {
   ["Class"] = "blue",
-  ["Constant"] = "cyan",
+  ["Constant"] = "lightpurple",
   ["Field"] = "yellow",
   ["Interface"] = "yellow",
   ["Function"] = "green",
@@ -15,7 +15,6 @@ local kind_to_color = {
   ["Variable"] = "cyan",
   ["Object"] = "red",
   ["String"] = "blackbg}%{yellow",
-
   ["Array"] = "green",
   ["Branch"] = "whitebg}%{magenta",
   ["Boolean"] = "blue",
@@ -342,7 +341,7 @@ end
 
 local function colored_kind(kind)
   local width = 10 -- max lenght of listed kinds
-  if not kind or type(kind) ~= string then
+  if kind == nil then
     return string.rep(" ", width)
   end
 
