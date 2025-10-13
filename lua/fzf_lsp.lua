@@ -1420,6 +1420,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.definition(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.definition)
   if not client then
     notify_no_clients(methods.definition)
@@ -1435,6 +1436,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.declaration(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.declaration)
   if not client then
     notify_no_clients(methods.declaration)
@@ -1450,6 +1452,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.type_definition(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.typeDefinition)
   if not client then
     notify_no_clients(methods.typeDefinition)
@@ -1465,6 +1468,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.implementation(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.implementation)
   if not client then
     notify_no_clients(methods.implementation)
@@ -1482,6 +1486,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.references(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.references)
   if not client then
     notify_no_clients(methods.references)
@@ -1499,6 +1504,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.document_symbol(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.documentSymbol)
   if not client then
     notify_no_clients(methods.documentSymbol)
@@ -1533,6 +1539,7 @@ end
 ---@param handler fun(err: lsp.ResponseError?, result: lsp.CallHierarchyIncomingCall[]|lsp.CallHierarchyOutgoingCall[]?, ctx: lsp.HandlerContext, config?: table)
 ---@param client vim.lsp.Client
 local function prepare_call_method(opts, handler, client)
+  opts = opts or {}
   local bufnr = api.nvim_get_current_buf()
   local encoding = client.offset_encoding
   ---@type lsp.CallHierarchyPrepareParams
@@ -1599,6 +1606,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.outgoing_calls(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.prepareCallHierarchy)
   if not client then
     notify_no_clients(methods.prepareCallHierarchy)
@@ -1617,6 +1625,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.code_action(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.codeAction)
   if not client then
     notify_no_clients(methods.codeAction)
@@ -1639,6 +1648,7 @@ end
 
 ---@type fzf_lsp.LspMethodCall
 function M.range_code_action(bang, opts)
+  opts = opts or {}
   local client = find_client_with_provider(methods.codeAction)
   if not client then
     notify_no_clients(methods.codeAction)
