@@ -8,7 +8,7 @@ local kind_to_color = {
   ["Field"] = "yellow",
   ["Interface"] = "yellow",
   ["Function"] = "green",
-  ["Method"] ="green",
+  ["Method"] = "green",
   ["Module"] = "magenta",
   ["Property"] = "yellow",
   ["Struct"] = "red",
@@ -32,17 +32,18 @@ local methods = {
 local M = {}
 
 -- platform detection {{{
-local is_windows = vim.env.OS == 'Windows_NT'
+local is_windows = vim.env.OS == "Windows_NT"
 -- }}}
 
 -- binary paths {{{
 local __file = debug.getinfo(1, "S").source:match("@(.*)$")
 assert(__file ~= nil)
 local bin_dir = fn.fnamemodify(__file, ":p:h:h") .. "/bin"
-local preview_command = ''
+local preview_command = ""
 if (is_windows) then
-  bin_dir = fn.substitute(bin_dir, '\\', '/', 'g') -- Ensure use of forward slash
-  preview_command = 'powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File ' .. bin_dir .. "/preview.ps1"
+  bin_dir = fn.substitute(bin_dir, "\\", "/", "g") -- Ensure use of forward slash
+  preview_command = "powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File " ..
+      bin_dir .. "/preview.ps1"
 else
   preview_command = bin_dir .. "/preview.sh"
 end
@@ -246,22 +247,22 @@ local truncate = function(str, len, dots, direction)
 end
 
 local function partial(func, ...)
-    local bound_args = {...}
-    local n_bound = select("#", ...) -- Count of bound arguments, including nils
-    return function(...)
-        local new_args = {...}
-        local n_new = select("#", ...) -- Count of new arguments, including nils
-        local args = {}
-        -- Copy bound arguments, preserving nils
-        for i = 1, n_bound do
-            args[i] = bound_args[i]
-        end
-        -- Append new arguments, preserving nils
-        for i = 1, n_new do
-            args[n_bound + i] = new_args[i]
-        end
-        return func(unpack(args, 1, n_bound + n_new))
+  local bound_args = { ... }
+  local n_bound = select("#", ...) -- Count of bound arguments, including nils
+  return function(...)
+    local new_args = { ... }
+    local n_new = select("#", ...) -- Count of new arguments, including nils
+    local args = {}
+    -- Copy bound arguments, preserving nils
+    for i = 1, n_bound do
+      args[i] = bound_args[i]
     end
+    -- Append new arguments, preserving nils
+    for i = 1, n_new do
+      args[n_bound + i] = new_args[i]
+    end
+    return func(unpack(args, 1, n_bound + n_new))
+  end
 end
 
 local function perror(err)
@@ -287,8 +288,8 @@ local function colored_kind(kind)
   local width = 10 -- max lenght of listed kinds
   local color = kind_to_color[kind] or "white"
   return ansi.noReset("%{bright}%{" .. color .. "}")
-    .. align_str(truncate(kind or "", width), width)
-    .. ansi.noReset("%{reset}")
+      .. align_str(truncate(kind or "", width), width)
+      .. ansi.noReset("%{reset}")
 end
 -- }}}
 
@@ -315,8 +316,8 @@ local function extract_result(results_lsp)
 end
 
 -- TODO: Remove sample text
--- vim.keymap.set('n', '<C-t>', function ()
---   local method = 'textDocument/codeAction'
+-- vim.keymap.set("n", "<C-t>", function ()
+--   local method = "textDocument/codeAction"
 --   local bufnr = vim.api.nvim_get_current_buf()
 --   local lua_ls = vim.lsp.get_clients({ bufnr = bufnr, method = method })[1]
 --   if lua_ls == nil then
@@ -329,24 +330,24 @@ end
 --     })
 --   }
 --   -- lua_ls:request(method, param_l, function (err, result, context, config)
---   --   vim.print('err:', err)
---   --   vim.print('res:', result)
---   --   vim.print('ctx:', context)
---   --   vim.print('conf:', config)
+--   --   vim.print("err:", err)
+--   --   vim.print("res:", result)
+--   --   vim.print("ctx:", context)
+--   --   vim.print("conf:", config)
 --   -- end, bufnr)
 --
 --   vim.lsp.buf_request_all(bufnr, method, param_l, function (results, context, config)
---     vim.print('res:', results)
---     vim.print('ctx:', context)
---     vim.print('conf:', config)
+--     vim.print("res:", results)
+--     vim.print("ctx:", context)
+--     vim.print("conf:", config)
 --   end)
 --
 --   -- -- sync
 --   -- local results_lsp, err = vim.lsp.buf_request_sync(
 --   --   bufnr, method, param_l, 60 * 1000
 --   -- )
---   -- vim.print('res:', next(results_lsp))
---   -- vim.print('err:', err)
+--   -- vim.print("res:", next(results_lsp))
+--   -- vim.print("err:", err)
 -- end)
 
 ---@class FzfLspContextCall
@@ -366,7 +367,7 @@ local function call_lsp_method(method, params, opts, handler, client)
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
 
-  vim.lsp.buf_request_all(bufnr, method, params, function (results, context, config)
+  vim.lsp.buf_request_all(bufnr, method, params, function(results, context, config)
     local err = results[1] and results[1].err
     ---@diagnostic disable-next-line: inject-field
     context.opts = opts
@@ -418,7 +419,7 @@ local function code_action_execute(action, client)
     if type(action.command) == "table" then
       -- vim.lsp.buf.execute_command(action.command)
 
-      -- local methods = require('vim.lsp.protocol').Methods
+      -- local methods = require("vim.lsp.protocol").Methods
       -- local workspace_executeCommand = methods.workspace_executeCommand
       -- vim.lsp.buf_request(0, "workspace/executeCommand", action.command)
       -- TODO: If the update to exec_cmd does not work, try update to
@@ -426,7 +427,6 @@ local function code_action_execute(action, client)
       client:exec_cmd(action.command)
     end
   else
-
     -- vim.lsp.buf.execute_command(action)
     client:exec_cmd(action)
   end
@@ -514,7 +514,7 @@ local function locations_from_lines(lines, data)
 
   for _, line in ipairs(lines) do
     local idx = assert(tonumber(vim.split(line, " ")[1]), "Could not recover index")
-    locations[#locations+1] = assert(src[idx], "Missing item from source")
+    locations[#locations + 1] = assert(src[idx], "Missing item from source")
   end
 
   return locations
@@ -535,7 +535,7 @@ local function pick_call_hierarchy_item(call_hierarchy_items)
   local items = {}
   for i, item in ipairs(call_hierarchy_items) do
     local entry = item.detail or item.name
-    table.insert(items, string.format('%d. %s', i, entry))
+    table.insert(items, string.format("%d. %s", i, entry))
   end
   local choice = vim.fn.inputlist(items)
   if choice < 1 or choice > #items then
@@ -562,7 +562,7 @@ local function prepare_call_hierarchy_handler(method, handler, err, result, ctx,
     client:request(method, { item = call_hierarchy_item }, handler, ctx.bufnr)
   else
     vim.notify(
-      string.format('Client with id=%d disappeared during call hierarchy request', ctx.client_id),
+      string.format("Client with id=%d disappeared during call hierarchy request", ctx.client_id),
       vim.log.levels.WARN
     )
   end
@@ -588,7 +588,6 @@ local function location_handler(err, locations, ctx, _, error_message)
   end
 
   local client = vim.lsp.get_client_by_id(ctx.client_id)
-
   if not client then return end
 
   if vim.islist(locations) then
@@ -627,7 +626,8 @@ local function call_hierarchy_handler(direction, err, result, ctx, _, error_mess
   end
 
   ---@type vim.lsp.Client?
-  local client = (ctx and ctx.client_id ~= nil) and vim.lsp.get_client_by_id(ctx.client_id) or vim.lsp.get_clients({ bufnr = 0 })[1]
+  local client = (ctx and ctx.client_id ~= nil) and vim.lsp.get_client_by_id(ctx.client_id) or
+      vim.lsp.get_clients({ bufnr = 0 })[1]
 
   local encoding = "utf-16"
   if client ~= nil then
@@ -648,20 +648,20 @@ local function call_hierarchy_handler(direction, err, result, ctx, _, error_mess
     -- Ensure buffer is loaded to get content
     vim.fn.bufload(bufnr)
 
-    -- vim.print('range:', range)
-    -- vim.print('buff:', bufnr)
-    -- vim.print('filename:', filename)
+    -- vim.print("range:", range)
+    -- vim.print("buff:", bufnr)
+    -- vim.print("filename:", filename)
     local sline = vim.api.nvim_buf_get_lines(bufnr, range.start.line, range.start.line + 1, false)[1]
-    local eline = vim.api.nvim_buf_get_lines(bufnr, range['end'].line, range['end'].line + 1, false)[1]
+    local eline = vim.api.nvim_buf_get_lines(bufnr, range["end"].line, range["end"].line + 1, false)[1]
     local col = vim.str_byteindex(sline, encoding, range.start.character, false) + 1
-    local end_col = vim.str_byteindex(eline, encoding, range['end'].character, false) + 1
+    local end_col = vim.str_byteindex(eline, encoding, range["end"].character, false) + 1
 
     table.insert(items, {
       bufnr = bufnr,
       filename = filename,
       -- module = ...,
       lnum = range.start.line + 1,
-      end_lnum = range['end'].line + 1,
+      end_lnum = range["end"].line + 1,
       -- pattern = ...,
       col = col,
       -- col = range.start.character + 1,
@@ -700,11 +700,11 @@ local function fzf_wrap(name, opts, bang)
   bang = bang or 0
 
   if g.fzf_lsp_layout then
-    opts = vim.tbl_extend('keep', opts, g.fzf_lsp_layout)
+    opts = vim.tbl_extend("keep", opts, g.fzf_lsp_layout)
   end
 
   if g.fzf_lsp_colors then
-    vim.list_extend(opts.options, {"--color", g.fzf_lsp_colors})
+    vim.list_extend(opts.options, { "--color", g.fzf_lsp_colors })
   end
 
   local sink_fn = opts["sink*"] or opts["sink"]
@@ -714,7 +714,7 @@ local function fzf_wrap(name, opts, bang)
     -- if no sink function is given i automatically put the actions
     if g.fzf_lsp_action and not vim.tbl_isempty(g.fzf_lsp_action) then
       vim.list_extend(
-        opts.options, {"--expect", table.concat(vim.tbl_keys(g.fzf_lsp_action), ",")}
+        opts.options, { "--expect", table.concat(vim.tbl_keys(g.fzf_lsp_action), ",") }
       )
     end
   end
@@ -737,7 +737,8 @@ local function jump_to_location(location, data)
   vim.fn.bufload(bufnr) -- ensure buffer is loaded into memory or buffer will be empty
 
   ---@type vim.lsp.Client?
-  local client = (data.ctx and data.ctx.client_id ~= nil) and vim.lsp.get_client_by_id(data.ctx.client_id) or vim.lsp.get_clients({ bufnr = 0 })[1]
+  local client = (data.ctx and data.ctx.client_id ~= nil) and vim.lsp.get_client_by_id(data.ctx.client_id) or
+      vim.lsp.get_clients({ bufnr = 0 })[1]
 
   local encoding = "utf-16"
   if client ~= nil then
@@ -747,29 +748,29 @@ local function jump_to_location(location, data)
   -- Convert back a quickfix entry style to lsp.Location
   local start_line = location.lnum - 1
   local end_line = location.end_lnum - 1
-  local start_line_content = vim.api.nvim_buf_get_lines(bufnr, start_line, start_line + 1, false)[1] or ''
-  local end_line_content = vim.api.nvim_buf_get_lines(bufnr, end_line, end_line + 1, false)[1] or ''
+  local start_line_content = vim.api.nvim_buf_get_lines(bufnr, start_line, start_line + 1, false)[1] or ""
+  local end_line_content = vim.api.nvim_buf_get_lines(bufnr, end_line, end_line + 1, false)[1] or ""
   local start_col = vim.str_utfindex(start_line_content, encoding, location.col - 1, false)
   local end_col = vim.str_utfindex(end_line_content, encoding, location.end_col - 1, false)
   --    ^
   -- Samples
   -- from lsp.character to col
-  -- =vim.str_byteindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], 'utf-16', 10, false) + 1
+  -- =vim.str_byteindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], "utf-16", 10, false) + 1
   -- from col to lsp.character
-  -- =vim.str_utfindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], 'utf-16', 11 - 1, false)
+  -- =vim.str_utfindex(vim.api.nvim_buf_get_lines(31, 518, 519, false)[1], "utf-16", 11 - 1, false)
 
   -- Load buffer and jump to it
-  -- local uri = vim.uri_from_fname(vim.fn.fnamemodify('nvimw', ':p'))
+  -- local uri = vim.uri_from_fname(vim.fn.fnamemodify("nvimw", ":p"))
   -- local bufnr = vim.uri_to_bufnr(uri)
   -- =vim.fn.bufload(<bufnr>)
-  -- =vim.lsp.util.show_document({ uri = uri, range = { ['start'] = { line = 3, character = 0 }, ['end'] = { line = 3, character = 8 } } }, 'utf-16', { focus = true })
+  -- =vim.lsp.util.show_document({ uri = uri, range = { ["start"] = { line = 3, character = 0 }, ["end"] = { line = 3, character = 8 } } }, "utf-16", { focus = true })
 
   ---@type lsp.Location
   local lspLocation = {
     uri = uri,
     range = {
-      ['start'] = { line = start_line, character = start_col  },
-      ['end'] = { line = end_line, character = end_col },
+      ["start"] = { line = start_line, character = start_col },
+      ["end"] = { line = end_line, character = end_col },
     },
   }
 
@@ -790,10 +791,10 @@ local function common_sink(data, title, lines)
 
   local locations = locations_from_lines(lines, data)
   if action == nil and #lines > 1 then
-    vim.fn.setqflist({}, ' ', {
-        title = title or 'Language Server';
-        items = locations;
-      })
+    vim.fn.setqflist({}, " ", {
+      title = title or "Language Server",
+      items = locations,
+    })
     api.nvim_command("copen")
     api.nvim_command("wincmd p")
 
@@ -813,7 +814,7 @@ local function common_sink(data, title, lines)
 
   -- Action is command
   -- Due to limitations we pass the filename only
-  if type(action) == "string" and vim.fn.exists(':'..action) > 0 then
+  if type(action) == "string" and vim.fn.exists(":" .. action) > 0 then
     for _, loc in ipairs(locations) do
       local err = api.nvim_command(action .. " " .. loc["filename"])
       if err ~= nil then
@@ -825,7 +826,7 @@ local function common_sink(data, title, lines)
 
   -- Action is lua function
   if key ~= nil and type(action) == "function" then
-    local ok, err = pcall(function ()
+    local ok, err = pcall(function()
       action({ locatios = locations, data = data, action_type = title })
     end)
 
@@ -839,13 +840,13 @@ local function common_sink(data, title, lines)
   if key ~= nil and action == vim.NIL then
     -- Sample hack
     -- _G.test_f = {
-    --   foo = function() return 'from lua' end
+    --   foo = function() return "from lua" end
     -- }
     -- vim.cmd([[
     --   func! s:Foo(arg) abort
     --     echo a:arg
     --   endf
-    --   let g:foo = { 'a': function('s:Foo') }
+    --   let g:foo = { "a": function("s:Foo") }
     --   call g:foo.a(v:lua.test_f.foo())
     -- ]])
 
@@ -904,7 +905,7 @@ local function fzf_ui_select(items, opts, on_choice)
 
   local source = {}
   for i, item in pairs(items) do
-    table.insert(source, string.format('%d: %s', i, format_item(item)))
+    table.insert(source, string.format("%d: %s", i, format_item(item)))
   end
 
   local function sink_fn(lines)
@@ -926,12 +927,12 @@ local function fzf_ui_select(items, opts, on_choice)
   end
 
   fzf_run(fzf_wrap("fzf_lsp", {
-      source = source,
-      sink = sink_fn,
-      options = {
-        "--prompt", prompt .. " ",
-        "--ansi",
-      }
+    source = source,
+    sink = sink_fn,
+    options = {
+      "--prompt", prompt .. " ",
+      "--ansi",
+    }
   }, 0))
 end
 
@@ -986,35 +987,35 @@ local function fzf_locations(bang, header, prompt, source, data)
   -- Use powershell to display the preview
   if is_windows then
     table.insert(options, "--with-shell")
-    table.insert(options, 'powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command')
+    table.insert(options, "powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command")
   end
 
   if g.fzf_lsp_pretty then
-    vim.list_extend(options, {"--delimiter", "\x01 ", "--nth", "1" })
+    vim.list_extend(options, { "--delimiter", "\x01 ", "--nth", "1" })
   end
 
   if g.fzf_lsp_action and not vim.tbl_isempty(g.fzf_lsp_action) then
     vim.list_extend(
-      options, {"--expect", table.concat(vim.tbl_keys(g.fzf_lsp_action), ",")}
+      options, { "--expect", table.concat(vim.tbl_keys(g.fzf_lsp_action), ",") }
     )
   end
 
   if g.fzf_lsp_preview_window then
     if #g.fzf_lsp_preview_window == 0 then
-      g.fzf_lsp_preview_window = {"hidden"}
+      g.fzf_lsp_preview_window = { "hidden" }
     end
 
-    vim.list_extend(options, {"--preview-window", g.fzf_lsp_preview_window[1]})
+    vim.list_extend(options, { "--preview-window", g.fzf_lsp_preview_window[1] })
     if #g.fzf_lsp_preview_window > 1 then
       local preview_bindings = {}
-      for i=2, #g.fzf_lsp_preview_window, 1 do
+      for i = 2, #g.fzf_lsp_preview_window, 1 do
         table.insert(preview_bindings, g.fzf_lsp_preview_window[i] .. ":toggle-preview")
       end
-      vim.list_extend(options, {"--bind", table.concat(preview_bindings, ",")})
+      vim.list_extend(options, { "--bind", table.concat(preview_bindings, ",") })
     end
   end
 
-  vim.list_extend(options, {"--preview", preview_cmd})
+  vim.list_extend(options, { "--preview", preview_cmd })
   fzf_run(fzf_wrap(name, {
     source = source,
     sink = partial(common_sink, data, prompt),
@@ -1042,11 +1043,11 @@ local function fzf_code_actions(bang, header, prompt, actions)
     local action = actions[idx]
     local client = vim.lsp.get_client_by_id(action.client_id)
     if
-      not action.edit
-      and client
-      and type(client.server_capabilities.codeActionProvider) == "table"
-      and client.server_capabilities.codeActionProvider.resolveProvider
-      then
+        not action.edit
+        and client
+        and type(client.server_capabilities.codeActionProvider) == "table"
+        and client.server_capabilities.codeActionProvider.resolveProvider
+    then
       client:request("codeAction/resolve", action, function(resolved_err, resolved_action)
         if resolved_err then
           vim.notify(resolved_err.code .. ": " .. resolved_err.message, vim.log.levels.ERROR)
@@ -1074,9 +1075,9 @@ local function fzf_code_actions(bang, header, prompt, actions)
     table.insert(opts, header)
   end
   fzf_run(fzf_wrap("fzf_lsp", {
-      source = lines,
-      sink = sink_fn,
-      options = opts
+    source = lines,
+    sink = sink_fn,
+    options = opts
   }, bang))
 end
 -- }}}
@@ -1126,7 +1127,7 @@ local function definition_handler(bang, err, result, ctx, config)
   )
   if locs and not vim.tbl_isempty(locs) then
     local lines = lines_from_locations(locs, true)
-    local data = { results = result, ctx = ctx, config = config, locs = locs , infile = false }
+    local data = { results = result, ctx = ctx, config = config, locs = locs, infile = false }
     fzf_locations(bang, "", "Definitions", lines, data)
   end
 end
@@ -1181,10 +1182,10 @@ local function references_handler(bang, err, result, ctx, config)
 
   local client = vim.lsp.get_client_by_id(ctx.client_id)
   ---@type string
-  local encoding = ''
+  local encoding = ""
 
   if not client then
-    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    vim.notify("Could not find the client with id: " .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
     encoding = "utf-16"
   else
@@ -1212,11 +1213,11 @@ local function document_symbol_handler(bang, err, result, ctx, config)
   end
 
   ---@type string
-  local encoding = ''
+  local encoding = ""
   local client = vim.lsp.get_client_by_id(ctx.client_id)
 
   if not client then
-    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    vim.notify("Could not find the client with id: " .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
     encoding = "utf-16"
   else
@@ -1243,11 +1244,11 @@ local function workspace_symbol_handler(bang, err, result, ctx, config)
   end
 
   ---@type string
-  local encoding = ''
+  local encoding = ""
   local client = vim.lsp.get_client_by_id(ctx.client_id)
 
   if not client then
-    vim.notify('Could not find the client with id: ' .. ctx.client_id, vim.log.levels.WARN)
+    vim.notify("Could not find the client with id: " .. ctx.client_id, vim.log.levels.WARN)
     -- Default to utf-16 if there is no client?
     encoding = "utf-16"
   else
@@ -1329,7 +1330,7 @@ end
 
 function M.implementation(bang, opts)
   local client = find_client_with_provider(methods.implementation)
-  if  not client then
+  if not client then
     return
   end
 
@@ -1377,7 +1378,7 @@ function M.workspace_symbol(bang, opts)
     return
   end
 
-  local params = { query = opts.query or '' }
+  local params = { query = opts.query or "" }
   call_lsp_method(
     methods.workspaceSymbol, params, opts, partial(workspace_symbol_handler, bang), client
   )
@@ -1394,7 +1395,7 @@ function M.incoming_calls(bang, opts)
   ---@type lsp.CallHierarchyPrepareParams
   local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
 
-  client:request(methods.prepareCallHierarchy, params, function (err, results, ctx, _config)
+  client:request(methods.prepareCallHierarchy, params, function(err, results, ctx, _config)
     ---@diagnostic disable-next-line: inject-field
     ctx.opts = opts
 
@@ -1418,7 +1419,7 @@ function M.outgoing_calls(bang, opts)
   ---@type lsp.CallHierarchyPrepareParams
   local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
 
-  client:request(methods.prepareCallHierarchy, params, function (err, results, ctx, _config)
+  client:request(methods.prepareCallHierarchy, params, function(err, results, ctx, _config)
     ---@diagnostic disable-next-line: inject-field
     ctx.opts = opts
     prepare_call_hierarchy_handler_to(
@@ -1546,6 +1547,7 @@ function M.diagnostic(bang, opts)
   local data = { infile = not show_all, diagnostics = buffer_diags, locs = items }
   fzf_locations(bang, "", "Diagnostics", entries, data)
 end
+
 -- }}}
 
 -- LSP FUNCTIONS {{{
