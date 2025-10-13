@@ -1030,7 +1030,7 @@ end
 local function fzf_code_actions(bang, header, prompt, actions)
   local lines = {}
   for i, a in ipairs(actions) do
-    lines[i] = a["idx"] .. ". " .. a["title"]
+    lines[i] = i .. ". " .. a["title"]
   end
 
   local sink_fn = (function(source)
@@ -1105,7 +1105,7 @@ end
 
 ---@type fzf_lsp.LspHandler
 local function code_action_handler(bang, err, result, _, _)
-  ---@cast result lsp.CodeAction[]
+  ---@cast result fzf_lsp.InjectedCodeAction
   if err ~= nil then
     perror(err)
     return
@@ -1114,10 +1114,6 @@ local function code_action_handler(bang, err, result, _, _)
   if not result or vim.tbl_isempty(result) then
     vim.notify("Code Action not available", vim.log.levels.INFO)
     return
-  end
-
-  for i, a in ipairs(result) do
-    a.idx = i
   end
 
   fzf_code_actions(bang, "", "Code Actions", result)
