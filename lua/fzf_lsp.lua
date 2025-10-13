@@ -76,12 +76,23 @@ end
 local bin = { preview = preview_command }
 -- }}}
 
+---@class fzf_lsp.CommonOpts
+---@field data? any User defined data that can be recover in the sync if a callback was provided
+---@field timeout? integer Timeout to wait. It is possible to use global g:fzf_lsp_timeout. Only valid for sync execution
+---@field sync? boolean Whether to run the request synchronously
+---@field bufnr? integer Buffer to apply diagnostics call
+---@field severity? integer Buffer to apply diagnostics call
+---@field severity_limit? integer Buffer to apply diagnostics call
+---@field query? string Query for document symbols call
+
+---@class fzf_lsp.HandlerContext: lsp.HandlerContext
+---@field opts fzf_lsp.CommonOpts Injected opts on the lsp.HandlerContext object
 
 ---@class fzf_lsp.fzf_locations_data
 ---@field locs vim.quickfix.entry[] parsed location data
 ---@field infile boolean if it is present on current file
 ---@field results? any|any[] lsp results data
----@field ctx? lsp.HandlerContext lsp context handler
+---@field ctx? fzf_lsp.HandlerContext lsp context handler
 ---@field config? table lsp request config
 ---@field diagnostics? vim.Diagnostic[] diagnostics information
 
@@ -93,6 +104,16 @@ local bin = { preview = preview_command }
 
 ---@class fzf_lsp.InjectedCodeAction: lsp.CodeAction
 ---@field client_id integer the client_id that provided the code action
+
+---@alias fzf_lsp.LspHandler fun(
+---bang: 0|1,
+---err: lsp.ResponseError,
+---result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[],
+---ctx: fzf_lsp.HandlerContext,
+---config: table?)
+
+---@alias fzf_lsp.LspMethodCall fun(bang: 0|1, opts: fzf_lsp.CommonOpts)
+---@alias fzf_lsp.RequestCall fun(opts: fzf_lsp.CommonOpts)
 
 -- utility functions {{{
 
@@ -108,6 +129,8 @@ local bin = { preview = preview_command }
 --     return package.config:sub(1, 1)
 --   end
 -- end
+
+local wait_result_reason = { timeout = -1, interrupted = -2, error = -3 }
 
 local strdisplaywidth = (function()
   local fallback = function(str, col)
@@ -291,8 +314,15 @@ local function partial(func, ...)
   end
 end
 
+---Notify error on lsp request
+---@param err string|lsp.ResponseError
 local function perror(err)
-  vim.notify("ERROR: " .. tostring(err), vim.log.levels.WARN)
+  if type(err) == "string" then
+    vim.notify("ERROR: " .. tostring(err), vim.log.levels.WARN)
+    return
+  end
+
+  vim.notify("ERROR: " .. tostring(err.message), vim.log.levels.WARN)
 end
 
 local function mk_handler(f)
@@ -340,7 +370,7 @@ end
 
 -- LSP utility {{{
 
----@param results_lsp table<integer, { err: (lsp.ResponseError)?, result: any[], context: lsp.HandlerContext }>
+---@param results_lsp table<integer, { err?: (lsp.ResponseError)?; error?: (lsp.ResponseError)?; result: any[]; context?: lsp.HandlerContext }>?
 ---@return lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]
 local function extract_result(results_lsp)
   if results_lsp then
@@ -395,25 +425,52 @@ end
 --   -- vim.print("err:", err)
 -- end)
 
----@class FzfLspContextCall
----@field method string Lsp method to call
----@field bufnr integer Buffer to applied the action to
----@field client_id integer Client id to apply the method
----@field opts any additional options to pass on resolution
-
 ---Call lsp method
 ---@param method vim.lsp.protocol.Method.ClientToServer.Request LSP method name.
 ---@param params any params for the lsp method following the spec
----@param opts any options for the method
----@param handler fzf_lsp.PartialLspHandler handler function
+---@param opts fzf_lsp.CommonOpts options for the method
+---@param handler lsp.Handler handler function
 ---@param client vim.lsp.Client
 local function call_lsp_method(method, params, opts, handler, client)
   params = params or {}
   opts = opts or {}
   local bufnr = vim.api.nvim_get_current_buf()
 
+  -- Sync request
+  if opts.sync then
+    local results_lsp, err_msg = vim.lsp.buf_request_sync(
+      bufnr, method, params, opts.timeout or g.fzf_lsp_timeout
+    )
+
+    local ctx = {
+      method = method,
+      bufnr = bufnr,
+      client_id = results_lsp and next(results_lsp) or (client.id or nil),
+      opts = opts,
+    }
+
+    local err = nil
+    if results_lsp then
+      local _, first_v = next(results_lsp)
+      ---@diagnostic disable-next-line: undefined-field
+      err = first_v and (first_v.error or first_v.err) or nil
+    elseif type(err_msg) == "string" then
+      err = {
+        message = err_msg,
+        code = wait_result_reason[err_msg],
+      }
+    end
+
+    return handler(err, extract_result(results_lsp), ctx, nil)
+  end
+
+  -- Async request
   vim.lsp.buf_request_all(bufnr, method, params, function(results, context, config)
-    local err = results[1] and results[1].err
+    local err = nil
+    if results then
+      local _, first_v = next(results)
+      err = first_v and first_v.err or nil
+    end
     ---@diagnostic disable-next-line: inject-field
     context.opts = opts
     handler(err, extract_result(results), context, config)
@@ -592,9 +649,9 @@ end
 ---Request call hierarchy request
 ---@param method "callHierarchy/incomingCalls"|"callHierarchy/outgoingCalls"
 ---@param handler lsp.Handler
----@param err lsp.ResponseError
+---@param err lsp.ResponseError?
 ---@param result lsp.CallHierarchyItem[]
----@param ctx lsp.HandlerContext
+---@param ctx fzf_lsp.HandlerContext
 ---@param _config? table
 local function prepare_call_hierarchy_handler(method, handler, err, result, ctx, _config)
   if err then
@@ -603,14 +660,47 @@ local function prepare_call_hierarchy_handler(method, handler, err, result, ctx,
   end
   local call_hierarchy_item = pick_call_hierarchy_item(result)
   local client = vim.lsp.get_client_by_id(ctx.client_id)
-  if client then
-    client:request(method, { item = call_hierarchy_item }, handler, ctx.bufnr)
-  else
+  if not client then
     vim.notify(
       string.format("Client with id=%d disappeared during call hierarchy request", ctx.client_id),
       vim.log.levels.WARN
     )
+    return
   end
+
+  local opts = ctx.opts or {}
+
+  -- Sync request
+  if opts.sync then
+    local results, err_msg = client:request_sync(
+      method, { item = call_hierarchy_item }, opts.timeout or g.fzf_lsp_timeout, ctx.bufnr
+    )
+
+    ---@type fzf_lsp.HandlerContext
+    local context = {
+      method = method,
+      bufnr = ctx.bufnr,
+      client_id = client.id,
+      opts = opts,
+    }
+
+    local error = nil
+
+    if results then
+      error = results.err
+    elseif type(error) == "string" then
+      error = { code = wait_result_reason[err_msg], message = err_msg }
+    end
+
+    return handler(err, results, context)
+  end
+
+  -- Async request
+  client:request(method, { item = call_hierarchy_item }, function (err, result, context, config)
+    ---@diagnostic disable-next-line: inject-field
+    context.opts = opts
+    handler(err, result, context, config)
+  end, ctx.bufnr)
 end
 
 
@@ -728,7 +818,7 @@ end
 
 local call_hierarchy_handler_from = partial(call_hierarchy_handler, "from")
 local call_hierarchy_handler_to = partial(call_hierarchy_handler, "to")
----@type fun(handler: lsp.Handler, err: lsp.ResponseError, result: lsp.CallHierarchyIncomingCall[], ctx: lsp.HandlerContext)
+---@type fun(handler: lsp.Handler, err: lsp.ResponseError?, result: lsp.CallHierarchyIncomingCall[], ctx: lsp.HandlerContext)
 local prepare_call_hierarchy_handler_from = partial(
   prepare_call_hierarchy_handler, methods.incomingCalls
 )
@@ -1136,19 +1226,6 @@ end
 --@field ctx lsp.HandlerContext Context object for the request
 --@field config table? Object holding configuration if any
 
----@alias fzf_lsp.LspHandler fun(
----bang: 0|1,
----err: lsp.ResponseError,
----result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[],
----ctx: lsp.HandlerContext,
----config: table?)
-
----@alias fzf_lsp.PartialLspHandler fun(
----err?: lsp.ResponseError,
----result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[],
----ctx: lsp.HandlerContext,
----config: table?)
-
 ---@type fzf_lsp.LspHandler
 local function code_action_handler(bang, err, result, _, _)
   ---@cast result fzf_lsp.InjectedCodeAction
@@ -1333,10 +1410,19 @@ local function outgoing_calls_handler(bang, err, result, ctx, config)
 end
 -- }}}
 
+---notify there are no clients available
+---@param method string
+local function notify_no_clients(method)
+  vim.notify(string.format('No lsp client available for "%s" method', method), vim.log.levels.WARN)
+end
+
 -- COMMANDS {{{
+
+---@type fzf_lsp.LspMethodCall
 function M.definition(bang, opts)
   local client = find_client_with_provider(methods.definition)
   if not client then
+    notify_no_clients(methods.definition)
     return
   end
 
@@ -1347,9 +1433,11 @@ function M.definition(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.declaration(bang, opts)
   local client = find_client_with_provider(methods.declaration)
   if not client then
+    notify_no_clients(methods.declaration)
     return
   end
 
@@ -1360,9 +1448,11 @@ function M.declaration(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.type_definition(bang, opts)
   local client = find_client_with_provider(methods.typeDefinition)
   if not client then
+    notify_no_clients(methods.typeDefinition)
     return
   end
 
@@ -1373,9 +1463,11 @@ function M.type_definition(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.implementation(bang, opts)
   local client = find_client_with_provider(methods.implementation)
   if not client then
+    notify_no_clients(methods.implementation)
     return
   end
 
@@ -1388,9 +1480,11 @@ end
 
 -- TODO: Use somthing like vim.tbl_extend to avoid the inject-field warning
 
+---@type fzf_lsp.LspMethodCall
 function M.references(bang, opts)
   local client = find_client_with_provider(methods.references)
   if not client then
+    notify_no_clients(methods.references)
     return
   end
 
@@ -1403,9 +1497,11 @@ function M.references(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.document_symbol(bang, opts)
   local client = find_client_with_provider(methods.documentSymbol)
   if not client then
+    notify_no_clients(methods.documentSymbol)
     return
   end
 
@@ -1416,10 +1512,12 @@ function M.document_symbol(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.workspace_symbol(bang, opts)
   opts = opts or {}
   local client = find_client_with_provider(methods.workspaceSymbol)
   if not client then
+    notify_no_clients(methods.workspaceSymbol)
     return
   end
 
@@ -1429,23 +1527,48 @@ function M.workspace_symbol(bang, opts)
   )
 end
 
-function M.incoming_calls(bang, opts)
-  local client = find_client_with_provider(methods.prepareCallHierarchy)
-  if not client then
-    return
-  end
 
+---Call lsp method
+---@param opts fzf_lsp.CommonOpts options for the method
+---@param handler fun(err: lsp.ResponseError?, result: lsp.CallHierarchyIncomingCall[]|lsp.CallHierarchyOutgoingCall[]?, ctx: lsp.HandlerContext, config?: table)
+---@param client vim.lsp.Client
+local function prepare_call_method(opts, handler, client)
   local bufnr = api.nvim_get_current_buf()
   local encoding = client.offset_encoding
   ---@type lsp.CallHierarchyPrepareParams
   local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
 
+  -- Sync request
+  if opts.sync then
+    local results, error = client:request_sync(
+      methods.prepareCallHierarchy, params, opts.timeout or g.fzf_lsp_timeout, bufnr
+    )
+
+    ---@type fzf_lsp.HandlerContext
+    local ctx = {
+      method = methods.prepareCallHierarchy,
+      bufnr = bufnr,
+      client_id = client.id,
+      opts = opts,
+    }
+
+    local err = nil
+
+    if results then
+      err = results.err
+    elseif type(error) == "string" then
+      err = { code = wait_result_reason[error], message = error }
+    end
+
+    return handler(err, results, ctx)
+  end
+
+  -- Async request
   client:request(methods.prepareCallHierarchy, params, function(err, results, ctx, _config)
     ---@diagnostic disable-next-line: inject-field
     ctx.opts = opts
 
-    prepare_call_hierarchy_handler_from(
-      partial(incoming_calls_handler, bang),
+    handler(
       err,
       results,
       ctx
@@ -1453,32 +1576,50 @@ function M.incoming_calls(bang, opts)
   end, bufnr)
 end
 
+
+---@type fzf_lsp.LspMethodCall
+function M.incoming_calls(bang, opts)
+  opts = opts or {}
+  local client = find_client_with_provider(methods.prepareCallHierarchy)
+  if not client then
+    notify_no_clients(methods.prepareCallHierarchy)
+    return
+  end
+
+  -- NOTE: Need to build a secondary handler because calls require to requests
+
+  ---@type lsp.Handler
+  local next_handler = partial(incoming_calls_handler, bang)
+  prepare_call_method(
+    opts,
+    partial(prepare_call_hierarchy_handler_from, next_handler),
+    client
+  )
+end
+
+---@type fzf_lsp.LspMethodCall
 function M.outgoing_calls(bang, opts)
   local client = find_client_with_provider(methods.prepareCallHierarchy)
   if not client then
+    notify_no_clients(methods.prepareCallHierarchy)
     return
   end
 
-  local bufnr = api.nvim_get_current_buf()
-  local encoding = client.offset_encoding
-  ---@type lsp.CallHierarchyPrepareParams
-  local params = vim.lsp.util.make_position_params(0, encoding) --[[@as lsp.CallHierarchyPrepareParams]]
+  -- NOTE: Need to build a secondary handler because calls require to requests
 
-  client:request(methods.prepareCallHierarchy, params, function(err, results, ctx, _config)
-    ---@diagnostic disable-next-line: inject-field
-    ctx.opts = opts
-    prepare_call_hierarchy_handler_to(
-      partial(outgoing_calls_handler, bang),
-      err,
-      results,
-      ctx
-    )
-  end, bufnr)
+  local next_handler = partial(outgoing_calls_handler, bang)
+  prepare_call_method(
+    opts,
+    partial(prepare_call_hierarchy_handler_to, next_handler),
+    client
+  )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.code_action(bang, opts)
   local client = find_client_with_provider(methods.codeAction)
   if not client then
+    notify_no_clients(methods.codeAction)
     return
   end
 
@@ -1496,9 +1637,11 @@ function M.code_action(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.range_code_action(bang, opts)
   local client = find_client_with_provider(methods.codeAction)
   if not client then
+    notify_no_clients(methods.codeAction)
     return
   end
 
@@ -1516,6 +1659,7 @@ function M.range_code_action(bang, opts)
   )
 end
 
+---@type fzf_lsp.LspMethodCall
 function M.diagnostic(bang, opts)
   opts = opts or {}
 
@@ -1596,30 +1740,52 @@ end
 -- }}}
 
 -- LSP FUNCTIONS {{{
+---@type fzf_lsp.RequestCall
 M.code_action_call = partial(M.code_action, 0)
+---@type fzf_lsp.RequestCall
 M.range_code_action_call = partial(M.range_code_action, 0)
+---@type fzf_lsp.RequestCall
 M.definition_call = partial(M.definition, 0)
+---@type fzf_lsp.RequestCall
 M.declaration_call = partial(M.declaration, 0)
+---@type fzf_lsp.RequestCall
 M.type_definition_call = partial(M.type_definition, 0)
+---@type fzf_lsp.RequestCall
 M.implementation_call = partial(M.implementation, 0)
+---@type fzf_lsp.RequestCall
 M.references_call = partial(M.references, 0)
+---@type fzf_lsp.RequestCall
 M.document_symbol_call = partial(M.document_symbol, 0)
+---@type fzf_lsp.RequestCall
 M.workspace_symbol_call = partial(M.workspace_symbol, 0)
+---@type fzf_lsp.RequestCall
 M.incoming_calls_call = partial(M.incoming_calls, 0)
+---@type fzf_lsp.RequestCall
 M.outgoing_calls_call = partial(M.outgoing_calls, 0)
+---@type fzf_lsp.RequestCall
 M.diagnostic_call = partial(M.diagnostic, 0)
 -- }}}
 
 -- LSP HANDLERS {{{
+---@type lsp.Handler
 M.code_action_handler = mk_handler(partial(code_action_handler, 0))
+---@type lsp.Handler
 M.definition_handler = mk_handler(partial(definition_handler, 0))
+---@type lsp.Handler
 M.declaration_handler = mk_handler(partial(declaration_handler, 0))
+---@type lsp.Handler
 M.type_definition_handler = mk_handler(partial(type_definition_handler, 0))
+---@type lsp.Handler
 M.implementation_handler = mk_handler(partial(implementation_handler, 0))
+---@type lsp.Handler
 M.references_handler = mk_handler(partial(references_handler, 0))
+---@type lsp.Handler
 M.document_symbol_handler = mk_handler(partial(document_symbol_handler, 0))
+---@type lsp.Handler
 M.workspace_symbol_handler = mk_handler(partial(workspace_symbol_handler, 0))
+---@type lsp.Handler
 M.incoming_calls_handler = mk_handler(partial(incoming_calls_handler, 0))
+---@type lsp.Handler
 M.outgoing_calls_handler = mk_handler(partial(outgoing_calls_handler, 0))
 -- }}}
 
