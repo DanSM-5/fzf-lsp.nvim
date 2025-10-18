@@ -370,6 +370,39 @@ end
 
 -- LSP utility {{{
 
+---Get diagnostics for the given line
+---@param line? integer? line number to get diagnostics from (0-based index) or nil for current
+---@return vim.Diagnostic[]
+local function get_diagnostics_data(line)
+  local lnum = line or vim.api.nvim_win_get_cursor(0)[1] - 1
+  local diagnostics = vim.diagnostic.get(0, { lnum = lnum })
+  if #diagnostics == 0 then
+    return {}
+  end
+
+  return vim.tbl_map(function (d)
+    return d.user_data.lsp
+  end, diagnostics)
+end
+
+---Get diagnostics of the given range
+---@param range lsp.Range
+local function get_diagnostics_range(range)
+  -- add 1 to avoid loop starting of 0
+  local r_start = range.start.line + 1
+  local r_end = range['end'].line + 1
+  ---@type vim.Diagnostic[]
+  local diagnostics = {}
+  for i = r_start, r_end, 1 do
+    local ok, diag = pcall(get_diagnostics_data, i)
+    if ok then
+      vim.list_extend(diagnostics, diag)
+    end
+  end
+
+  return diagnostics
+end
+
 ---@param results_lsp table<integer, { err?: (lsp.ResponseError)?; error?: (lsp.ResponseError)?; result: any[]; context?: lsp.HandlerContext }>?
 ---@return lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]
 local function extract_result(results_lsp)
@@ -1651,12 +1684,11 @@ function M.code_action(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_range_params(0, encoding)
+  local ok, diag = pcall(get_diagnostics_data)
+  local diagnostics = ok and diag or {}
   ---@diagnostic disable-next-line: inject-field
   params.context = {
-    diagnostics = vim.diagnostic.get(0, {
-      -- lnum is 0-base index as god intended
-      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
-    })
+    diagnostics = diagnostics,
   }
   call_lsp_method(
     methods.codeAction, params, opts, partial(code_action_handler, bang), client
@@ -1674,12 +1706,11 @@ function M.range_code_action(bang, opts)
 
   local encoding = client.offset_encoding
   local params = vim.lsp.util.make_given_range_params(nil, nil, 0, encoding)
+  local ok, diag = pcall(get_diagnostics_range, params.range)
+  local diagnostics = ok and diag or {}
   ---@diagnostic disable-next-line: inject-field
   params.context = {
-    diagnostics = vim.diagnostic.get(0, {
-      -- lnum is 0-base index as god intended
-      lnum = vim.api.nvim_win_get_cursor(0)[1] - 1
-    })
+    diagnostics = diagnostics,
   }
   call_lsp_method(
     methods.codeAction, params, opts, partial(code_action_handler, bang), client
