@@ -2,21 +2,45 @@
 
 ![Show document symbols](https://raw.githubusercontent.com/gfanto/fzf-lsp.nvim/main/.github/images/example.gif)
 
+Forked from [gfanto/fzf-lsp.nvim](https://github.com/gfanto/fzf-lsp.nvim). This fork addresses some issues with the
+original project and adds some small features
+
+- Windows support using a powershell script to handle preview
+- Call hierarchy (incoming/outgoing) fix
+- Update deprecated vim api functions
+- Remove dependency on plenary.nvim
+- Methods are async by default (and can be called synchronously by props)
+- You can set actions using VimL callbacks or lua callbacks
+
+## For who is this plugin
+
+It is for anyone using the builtin `fzf` plugin within the [fzf](https://github.com/junegunn/fzf) repository.
+
+All this plugin does is to provide functions that integrate the `fzf` plugin with neovim's lsp functionality, so you can
+use all your familiar tools/configurations in place.
+
 # Installation
 
-Install using [vim-plug](https://github.com/junegunn/vim-plug).
-Put this in your `init.vim`.
+## Vim Plug
+
+[vim-plug](https://github.com/junegunn/vim-plug).
 
 ```vim
-Plug 'gfanto/fzf-lsp.nvim'
-Plug 'nvim-lua/plenary.nvim'
+Plug 'DanSM-5/fzf-lsp.nvim'
 ```
+
+## Other methods
+
+The plugin can be installed with any package manager or manually by cloning into `pack/**/{opt,start}/<name>` and then add
+`:packadd! <name>` to your init file.
+
+For manual cloning refer to `:h packpath`, `:h packadd` and `:h stdpath()`
 
 ## Requirements
 
-* Neovim 0.5+
+* Neovim 0.10+
 * `fzf` installed in addition to use this plugin. See <https://github.com/junegunn/fzf/blob/master/README-VIM.md#installation>.
-* `bat` installed for the preview. See <https://github.com/sharkdp/bat>
+* `bat` (Optional) installed for the preview. See <https://github.com/sharkdp/bat>.
 
 ## Features
 
@@ -51,7 +75,7 @@ In general fzf-lsp.vim will respect your fzf.vim settings, alternatively you can
 
 -- locations: list of selected entries from fzf
 -- data: context data used to generate the list
--- action_type: string that can be used to identify the type of call. Same as prompt in fzf minuse the ">" symbol
+-- action_type: string that can be used to identify the type of call. Same as prompt in fzf minus the ">" symbol
 ```
 
 * `g:fzf_lsp_layout`: the equivalent of `g:fzf_layout`, dictionary with the fzf_window layout
@@ -90,20 +114,20 @@ fzf-lsp.vim only settings:
 
 Commands are just wrappers to the following function, each function take one optional parameter: a dictionary containing the options.
 
-- `require'fzf_lsp'.code_action_call`
-- `require'fzf_lsp'.range_code_action_call`
-- `require'fzf_lsp'.definition_call`
-- `require'fzf_lsp'.declaration_call`
-- `require'fzf_lsp'.type_definition_call`
-- `require'fzf_lsp'.implementation_call`
-- `require'fzf_lsp'.references_call`
-- `require'fzf_lsp'.document_symbol_call`
-- `require'fzf_lsp'.workspace_symbol_call`
+- `require('fzf_lsp').code_action_call`
+- `require('fzf_lsp').range_code_action_call`
+- `require('fzf_lsp').definition_call`
+- `require('fzf_lsp').declaration_call`
+- `require('fzf_lsp').type_definition_call`
+- `require('fzf_lsp').implementation_call`
+- `require('fzf_lsp').references_call`
+- `require('fzf_lsp').document_symbol_call`
+- `require('fzf_lsp').workspace_symbol_call`
     * options:
         * query
-- `require'fzf_lsp'.incoming_calls_call`
-- `require'fzf_lsp'.outgoing_calls_call`
-- `require'fzf_lsp'.diagnostic_call`
+- `require('fzf_lsp').incoming_calls_call`
+- `require('fzf_lsp').outgoing_calls_call`
+- `require('fzf_lsp').diagnostic_call`
     * options:
         * bufnr: the buffer number, default on current buffer
         * severity: the minimum severity level
