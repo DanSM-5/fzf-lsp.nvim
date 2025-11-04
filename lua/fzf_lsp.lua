@@ -403,14 +403,16 @@ local function get_diagnostics_range(range)
   return diagnostics
 end
 
----@param results_lsp table<integer, { err?: (lsp.ResponseError)?; error?: (lsp.ResponseError)?; result: any[]; context?: lsp.HandlerContext }>?
+---@param results_lsp table<integer, { err?: (lsp.ResponseError)?; error?: (lsp.ResponseError)?; result: table|any[]; context?: lsp.HandlerContext }>?
 ---@return lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]
 local function extract_result(results_lsp)
   if results_lsp then
     local results = {}
     for client_id, response in pairs(results_lsp) do
       if response.result then
-        for _, result in pairs(response.result) do
+        ---@type any[]
+        local res = vim.isarray(response.result) and response.result or { response.result }
+        for _, result in pairs(res) do
           result.client_id = client_id
           table.insert(results, result)
         end
