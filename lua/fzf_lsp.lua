@@ -113,7 +113,7 @@ local bin = { preview = preview_command }
 ---config: table?)
 
 ---@alias fzf_lsp.LspMethodCall fun(bang: 0|1, opts: fzf_lsp.CommonOpts)
----@alias fzf_lsp.RequestCall fun(opts: fzf_lsp.CommonOpts)
+---@alias fzf_lsp.RequestCall fun(opts?: fzf_lsp.CommonOpts)
 
 -- utility functions {{{
 
