@@ -1,7 +1,5 @@
 local vim, fn, api, g = vim, vim.fn, vim.api, vim.g
 
-local ansi = require("fzf_lsp.ansicolors")
-
 local kind_to_color = {
   ["Class"] = "blue",
   ["Constant"] = "lightpurple",
@@ -350,6 +348,7 @@ local function colored_kind(kind)
   local escape = "%{bright}%{" .. color .. "}"
   local kindlen = #kind
   local padding =  width > kindlen and string.rep(" ", width - kindlen) or ""
+  local ansi = require("fzf_lsp.ansicolors")
   return align_str(
     string.format(
       "%s%s%s%s",
