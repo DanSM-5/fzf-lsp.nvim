@@ -523,8 +523,9 @@ local function code_action_execute(action, client, bufnr)
       end)
     end
   else
+    -- Previous method (deprecated)
     -- vim.lsp.buf.execute_command(action)
-    client:exec_cmd(action.command)
+    client:exec_cmd(action --[[@as lsp.Command]])
   end
 end
 
