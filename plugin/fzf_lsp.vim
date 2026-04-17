@@ -65,6 +65,7 @@ let s:code_action_command = s:prefix . 'CodeActions'
 let s:range_code_action_command = s:prefix . 'RangeCodeActions'
 let s:diagnostics_single = s:prefix . 'Diagnostics'
 let s:diagnostics_all = s:prefix . 'DiagnosticsAll'
+let s:snippets_command = s:prefix . 'Snippets'
 
 fun! s:definition(bang) abort
   call v:lua.require('fzf_lsp')['definition'](a:bang)
@@ -113,6 +114,11 @@ fun! s:range_code_action(bang, range, line1, line2) abort
   call v:lua.require('fzf_lsp')['range_code_action'](a:bang)
 endfun
 
+fun! s:insert_snippet(bang, query) abort
+  let options = { 'query': a:query }
+  call v:lua.require('fzf_lsp')['snippets'](a:bang, options)
+endfun
+
 fun! s:diagnostic(bang, args) abort
   let options = {}
 
@@ -136,6 +142,7 @@ fun! s:diagnostic(bang, args) abort
 endfun
 
 fun! s:diagnostic_single(bang, args) abort
+  " creates a list of the first two space-separated items
   let l:args = split(a:args)[:2]
 
   call s:diagnostic(a:bang, l:args)
@@ -167,3 +174,4 @@ execute 'command! -bang ' . s:code_action_command . ' call s:code_action(<bang>0
 execute 'command! -bang -range ' . s:range_code_action_command . ' call s:range_code_action(<bang>0, <range>, <line1>, <line2>)'
 execute 'command! -bang -nargs=* ' . s:diagnostics_single . ' call s:diagnostic_single(<bang>0, <q-args>)'
 execute 'command! -bang -nargs=* ' . s:diagnostics_all . ' call s:diagnostic_all(<bang>0, <q-args>)'
+execute 'command! -bang -nargs=* ' . s:snippets_command . ' call s:insert_snippet(<bang>0, <q-args>)'
