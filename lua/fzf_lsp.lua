@@ -1220,7 +1220,7 @@ local function fzf_locations(bang, header, prompt, source, data)
   local name = fzf_opts.name
   local options = fzf_opts.options
 
-  vim.list_extend(options { "--multi", "--with-nth", "2.." })
+  vim.list_extend(options, { "--multi", "--with-nth", "2.." })
 
   if g.fzf_lsp_pretty then
     vim.list_extend(options, { "--delimiter", "\x01 ", "--nth", "1" })
@@ -1354,7 +1354,7 @@ local function fzf_completions(bang, header, prompt, items, data)
   local name = fzf_opts.name
 
   -- vim.list_extend(options, { '--no-multi' }, start?, finish?)
-  table.insert(options, '--no-multi')
+  table.insert(options, "--no-multi")
 
   fzf_run(fzf_wrap(name, {
     source = items,
