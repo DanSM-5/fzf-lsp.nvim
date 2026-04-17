@@ -53,6 +53,7 @@ local methods = {
   documentSymbol = "textDocument/documentSymbol",
   workspaceSymbol = "workspace/symbol",
   resolveCodeAction = "codeAction/resolve",
+  completion = "textDocument/completion",
 }
 
 local M = {}
@@ -110,12 +111,20 @@ local bin = { preview = preview_command }
 ---@alias fzf_lsp.LspHandler fun(
 ---bang: 0|1,
 ---err: lsp.ResponseError,
----result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]|lsp.CodeAction[],
+---result: lsp.Location[]|lsp.LocationLink[]|lsp.DocumentSymbol[]|lsp.SymbolInformation[]|lsp.WorkspaceSymbol[]|lsp.CodeAction[]|(lsp.CompletionItem[]|lsp.CompletionList)[],
 ---ctx: fzf_lsp.HandlerContext,
 ---config: table?)
 
 ---@alias fzf_lsp.LspMethodCall fun(bang: 0|1, opts: fzf_lsp.CommonOpts)
 ---@alias fzf_lsp.RequestCall fun(opts?: fzf_lsp.CommonOpts)
+
+---@alias fzf_lsp.completion.on_choice fun(idx: number, line: string)
+
+---@class fzf_lsp.completion.data
+---@field results lsp.CompletionItem[]
+---@field ctx lsp.HandlerContext
+---@field config table
+---@field on_choice fzf_lsp.completion.on_choice
 
 -- utility functions {{{
 
@@ -621,6 +630,23 @@ local function locations_from_lines(lines, data)
   return locations
 end
 
+---Convert completions into a readable format for fzf
+---@param completions lsp.CompletionItem[]
+---@return string[]
+local function lines_from_completions(completions)
+  local lbl_template = "%d. %s%s"
+  local detail_template = "- %s"
+  ---@type string[]
+  local items = {}
+  for i, c in ipairs(completions) do
+    local label = c.labelDetails or c.label
+    local detail = c.detail and detail_template:format(c.detail) or ""
+    items[#items + 1] = lbl_template:format(i, label, detail)
+  end
+
+  return items
+end
+
 ---Check the response and allow the user to choose one option for the
 ---call hierarchy request
 ---@param call_hierarchy_items lsp.CallHierarchyItem[]
@@ -816,12 +842,54 @@ local function call_hierarchy_handler(direction, err, result, ctx, _, error_mess
   return items
 end
 
+---Handler for snippets completion request
+---comment
+---@param err? lsp.ResponseError
+---@param completions (lsp.CompletionList|lsp.CompletionItem[])[]
+---@param ctx lsp.HandlerContext
+---@param _ table?
+---@param error_message string message to show on error
+---@return lsp.CompletionItem[]|nil
+local function snippets_completion_handler(err, completions, ctx, _, error_message)
+  if err then
+    perror(err)
+    return
+  end
+
+  if not completions or vim.tbl_isempty(completions) then
+    vim.notify(error_message, vim.log.levels.INFO)
+    return
+  end
+
+  ---@type lsp.CompletionItem[]
+  local filtered = vim.iter(completions)
+    :map(function(entry)
+      ---@cast entry lsp.CompletionItem[]|lsp.CompletionList
+      return entry.items and entry.items or entry
+    end)
+    :flatten(1)
+    :filter(function(c)
+      ---@cast c lsp.CompletionItem
+      -- 15 is 'snippet' kind for completions
+      return c.kind == 15
+    end)
+    :totable()
+
+  if #filtered == 0 then
+    vim.notify(error_message, vim.log.levels.INFO)
+    return
+  end
+
+  return filtered
+end
+
 local call_hierarchy_handler_from = partial(call_hierarchy_handler, "from")
 local call_hierarchy_handler_to = partial(call_hierarchy_handler, "to")
 ---@type fun(handler: lsp.Handler, err: lsp.ResponseError?, result: lsp.CallHierarchyIncomingCall[], ctx: lsp.HandlerContext)
 local prepare_call_hierarchy_handler_from = partial(prepare_call_hierarchy_handler, methods.incomingCalls)
 ---@type fun(handler: lsp.Handler, err: lsp.ResponseError, result: lsp.CallHierarchyOutgoingCall[], ctx: lsp.HandlerContext)
 local prepare_call_hierarchy_handler_to = partial(prepare_call_hierarchy_handler, methods.outgoingCalls)
+
 -- }}}
 
 -- FZF functions {{{
@@ -1029,6 +1097,22 @@ local function common_sink(data, title, lines)
   end
 end
 
+---Common sync function for fzf
+---@param data fzf_lsp.completion.data Context data for sink
+---@param title string title of the fzf call which can be used to identify the call
+---@param lines string[] response from selection in fzf
+local function completion_sink(data, title, lines)
+  -- Remove first entry as that is for an expect key
+  -- TODO: handle expected key?
+  -- table.remove(lines, 1)
+
+  for _, line in ipairs(lines) do
+    local idx = tonumber(line:match("(%d+)[.]")) -- e.g. "1. Some action"
+
+    pcall(data.on_choice, idx, line)
+  end
+end
+
 local function fzf_ui_select(items, opts, on_choice)
   local prompt = opts.prompt or "Select one of:"
   local format_item = opts.format_item or tostring
@@ -1056,7 +1140,7 @@ local function fzf_ui_select(items, opts, on_choice)
     end
   end
 
-  fzf_run(fzf_wrap("fzf_lsp", {
+  fzf_run(fzf_wrap("fzf_lsp_choice", {
     source = source,
     sink = sink_fn,
     options = {
@@ -1067,26 +1151,17 @@ local function fzf_ui_select(items, opts, on_choice)
   }, 0))
 end
 
----Show fzf with the list of locations
----@param bang 0|1 fzf fullscreen option. 1 for fullscreen, default 0.
----@param header string header to show in fzf `--header`
----@param prompt string prompt to show in fzf `--prompt`
----@param source string[] lines to show in fzf
----@param data fzf_lsp.fzf_locations_data
-local function fzf_locations(bang, header, prompt, source, data)
-  local preview_cmd
-  if g.fzf_lsp_pretty then
-    preview_cmd = (data.infile and (bin.preview .. " " .. fn.expand("%") .. ":{-1}") or (bin.preview .. " {-1}"))
-  else
-    preview_cmd = (data.infile and (bin.preview .. " " .. fn.expand("%") .. ":{2..}") or (bin.preview .. " {2..}"))
-  end
+---Get common fzf options
+---@param opts { prompt?: string; header?: string }
+---@return { options: string[]; name: string }
+local function get_fzf_opts(opts)
+  opts = opts or {}
+  local prompt = opts.prompt or ""
+  local header = opts.header or ""
 
   local options = {
     "--cycle",
     "--ansi",
-    "--multi",
-    "--with-nth",
-    "2..",
     "--bind",
     "ctrl-a:select-all,ctrl-d:deselect-all",
     "--bind",
@@ -1115,11 +1190,37 @@ local function fzf_locations(bang, header, prompt, source, data)
     table.insert(options, header)
   end
 
-  -- Use powershell to display the preview
+  -- Use powershell to execute fzf
   if is_windows then
     table.insert(options, "--with-shell")
     table.insert(options, "powershell.exe -NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command")
   end
+
+  return {
+    options = options,
+    name = name,
+  }
+end
+
+---Show fzf with the list of locations
+---@param bang 0|1 fzf fullscreen option. 1 for fullscreen, default 0.
+---@param header string header to show in fzf `--header`
+---@param prompt string prompt to show in fzf `--prompt`
+---@param source string[] lines to show in fzf
+---@param data fzf_lsp.fzf_locations_data
+local function fzf_locations(bang, header, prompt, source, data)
+  local preview_cmd
+  if g.fzf_lsp_pretty then
+    preview_cmd = (data.infile and (bin.preview .. " " .. fn.expand("%") .. ":{-1}") or (bin.preview .. " {-1}"))
+  else
+    preview_cmd = (data.infile and (bin.preview .. " " .. fn.expand("%") .. ":{2..}") or (bin.preview .. " {2..}"))
+  end
+
+  local fzf_opts = get_fzf_opts({ header = header, prompt = prompt })
+  local name = fzf_opts.name
+  local options = fzf_opts.options
+
+  vim.list_extend(options { "--multi", "--with-nth", "2.." })
 
   if g.fzf_lsp_pretty then
     vim.list_extend(options, { "--delimiter", "\x01 ", "--nth", "1" })
@@ -1234,10 +1335,31 @@ local function fzf_code_actions(bang, header, prompt, actions, bufnr)
     table.insert(opts, "--header")
     table.insert(opts, header)
   end
-  fzf_run(fzf_wrap("fzf_lsp", {
+  fzf_run(fzf_wrap("fzf_lsp_code_actions", {
     source = lines,
     sink = sink_fn,
     options = opts,
+  }, bang))
+end
+
+---Show completions from lsp sources
+---@param bang 0|1
+---@param header string string to show as header in fzf
+---@param prompt string string to show as prompt in fzf
+---@param items string[] items to display in fzf
+---@param data fzf_lsp.completion.data
+local function fzf_completions(bang, header, prompt, items, data)
+  local fzf_opts = get_fzf_opts({ header = header, prompt = prompt })
+  local options = fzf_opts.options
+  local name = fzf_opts.name
+
+  -- vim.list_extend(options, { '--no-multi' }, start?, finish?)
+  table.insert(options, '--no-multi')
+
+  fzf_run(fzf_wrap(name, {
+    source = items,
+    sink = partial(completion_sink, data, prompt),
+    options = options,
   }, bang))
 end
 -- }}}
@@ -1262,6 +1384,28 @@ local function code_action_handler(bang, err, result, ctx, _)
 end
 
 ---@type fzf_lsp.LspHandler
+local function snippets_handler(bang, err, result, ctx, config)
+  local completions = snippets_completion_handler(err, result, ctx, config, "No snippets provided by client")
+  if completions and not vim.tbl_isempty(completions) then
+    local lines = lines_from_completions(completions)
+    ---@type fzf_lsp.completion.data
+    local data = {
+      results = completions,
+      ctx = ctx,
+      config = config,
+      on_choice = vim.schedule_wrap(function(idx, _)
+        local snippet = completions[idx]
+
+        if snippet.textEdit then
+          vim.snippet.expand(snippet.textEdit.newText)
+        elseif snippet.insertText then
+          vim.snippet.expand(snippet.insertText)
+        end
+      end),
+    }
+    fzf_completions(bang, "", "Snippets", lines, data)
+  end
+end
 local function definition_handler(bang, err, result, ctx, config)
   local locs = location_handler(err, result, ctx, config, "Definition not found")
   if locs and not vim.tbl_isempty(locs) then
@@ -1424,6 +1568,22 @@ local function notify_no_clients(method)
 end
 
 -- COMMANDS {{{
+
+---@type fzf_lsp.LspMethodCall
+function M.snippets(bang, opts)
+  opts = opts or {}
+  local client = find_client_with_provider(methods.completion)
+  -- vim.lsp.completion.enable()
+  if not client then
+    notify_no_clients(methods.completion)
+    return
+  end
+
+  -- Ref: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion
+  local encoding = client.offset_encoding
+  local params = vim.lsp.util.make_position_params(0, encoding)
+  call_lsp_method(methods.completion, params, opts, partial(snippets_handler, bang), client)
+end
 
 ---@type fzf_lsp.LspMethodCall
 function M.definition(bang, opts)
@@ -1749,6 +1909,8 @@ M.incoming_calls_call = partial(M.incoming_calls, 0)
 M.outgoing_calls_call = partial(M.outgoing_calls, 0)
 ---@type fzf_lsp.RequestCall
 M.diagnostic_call = partial(M.diagnostic, 0)
+---@type fzf_lsp.RequestCall
+M.snippets_call = partial(M.snippets, 0)
 -- }}}
 
 -- LSP HANDLERS {{{
@@ -1781,6 +1943,8 @@ M.workspace_symbol_handler = mk_handler(partial(workspace_symbol_handler, 0))
 M.incoming_calls_handler = mk_handler(partial(incoming_calls_handler, 0))
 ---@type lsp.Handler
 M.outgoing_calls_handler = mk_handler(partial(outgoing_calls_handler, 0))
+---@type lsp.Handler
+M.snippets_completion_handler = mk_handler(partial(snippets_completion_handler, 0))
 -- }}}
 
 -- Lua SETUP {{{
