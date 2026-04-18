@@ -728,6 +728,21 @@ local function prepare_call_hierarchy_handler(method, handler, err, result, ctx,
   end, ctx.bufnr)
 end
 
+---Preload a file location before jump
+---@param loc lsp.Location|lsp.LocationLink
+---@param encoding 'utf-8'|'utf-16'|'utf-32'
+local function preload_and_jump(loc, encoding)
+  ---@type string
+  local uri = vim.tbl_get(loc, 'uri') or vim.tbl_get(loc, 'targetUri')
+  if uri == nil then
+    vim.notify('Not valid uri found', vim.log.levels.WARN)
+    return
+  end
+  local bufnr = vim.uri_to_bufnr(uri)
+  vim.fn.bufload(bufnr) -- ensure buffer is loaded into memory
+  vim.lsp.util.show_document(loc, encoding, { focus = true })
+end
+
 ---Location handler for lsp methods
 ---@param err? lsp.ResponseError
 ---@param locations lsp.Location|lsp.LocationLink|lsp.Location[]|lsp.LocationLink[]
@@ -751,16 +766,16 @@ local function location_handler(err, locations, ctx, _, error_message)
     return
   end
 
+
   if vim.islist(locations) then
     if #locations == 1 then
       -- Single location. Focus and return
-      vim.lsp.util.show_document(locations[1], client.offset_encoding, { focus = true })
-
+      preload_and_jump(locations[1], client.offset_encoding)
       return
     end
   else
     -- Single location. Focus and return
-    vim.lsp.util.show_document(locations, client.offset_encoding, { focus = true })
+    preload_and_jump(locations, client.offset_encoding)
     return
   end
 
